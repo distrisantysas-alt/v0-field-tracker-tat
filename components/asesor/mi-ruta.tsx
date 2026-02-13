@@ -17,10 +17,22 @@ const clients: Client[] = [
   { name: "Minimercado La Esperanza", address: "Av. Principal #8-90", distance: "~62m", status: "validada" },
   { name: "Supermercado El Progreso", address: "Cra 12 #34-56", distance: "~340m", status: "sospechosa" },
   { name: "Tienda La Esquina", address: "Calle 8 #12-34", distance: "~38m", status: "validada" },
-  { name: "Droguería Central", address: "Carrera 5 #67-89", distance: "~15m", status: "en-progreso" },
-  { name: "Distribuidora Hermanos García", address: "Calle 23 #45-67", distance: "~280m", status: "pendiente" },
-  { name: "Minimarket Los Pinos", address: "Av. 30 de Agosto #10-20", distance: "~520m", status: "pendiente" },
-  { name: "Tienda Familiar", address: "Cra 18 #90-12", distance: "--", status: "omitida" },
+  { name: "Droguería Central", address: "Carrera 5 #67-89", distance: "~15m", status: "validada" },
+  { name: "Distribuidora Hermanos García", address: "Calle 23 #45-67", distance: "~22m", status: "validada" },
+  { name: "Minimarket Los Pinos", address: "Av. 30 de Agosto #10-20", distance: "~50m", status: "validada" },
+  { name: "Tienda Familiar", address: "Cra 18 #90-12", distance: "~30m", status: "validada" },
+  { name: "Abarrotes El Sol", address: "Calle 12 #56-78", distance: "~18m", status: "validada" },
+  { name: "Papelería Escolar", address: "Cra 9 #23-45", distance: "~35m", status: "validada" },
+  { name: "Ferretería La Llave", address: "Av. Bolívar #67-01", distance: "~42m", status: "validada" },
+  { name: "Panadería El Trigal", address: "Calle 30 #11-22", distance: "~28m", status: "validada" },
+  { name: "Miscelánea Doña Rosa", address: "Cra 14 #78-33", distance: "~55m", status: "sospechosa" },
+  { name: "Cigarrería El Paso", address: "Calle 50 #4-15", distance: "~12m", status: "validada" },
+  { name: "Tienda Naturista Verde", address: "Av. 68 #19-40", distance: "~60m", status: "validada" },
+  { name: "Licorería La Copa", address: "Cra 7 #52-18", distance: "~33m", status: "validada" },
+  { name: "Supermercado Vecino", address: "Calle 3 #80-25", distance: "~200m", status: "pendiente" },
+  { name: "Carnicería Don Pedro", address: "Cra 22 #15-09", distance: "~350m", status: "pendiente" },
+  { name: "Droguería Salud Plus", address: "Av. Caracas #41-72", distance: "~420m", status: "pendiente" },
+  { name: "Tienda Express 24h", address: "Calle 72 #8-55", distance: "~500m", status: "pendiente" },
 ]
 
 const statusConfig: Record<ClientStatus, { color: string; barColor: string; label: string; bgOpacity: string; textColor: string }> = {
@@ -43,7 +55,8 @@ export function MiRuta() {
   const suspicious = clients.filter((c) => c.status === "sospechosa").length
   const pending = clients.filter((c) => c.status === "pendiente").length
   const total = clients.length
-  const hasActiveCheckin = clients.some((c) => c.status === "en-progreso")
+  const visited = validated + suspicious
+  const hasActiveCheckin = clients.some((c) => c.status === "en-progreso" || c.status === "pendiente")
 
   return (
     <div className="flex flex-col">
@@ -77,7 +90,7 @@ export function MiRuta() {
 
         <div className="relative">
           <div className="flex items-baseline gap-1">
-            <span className="text-5xl font-bold tracking-tight text-white">14</span>
+            <span className="text-5xl font-bold tracking-tight text-white">{visited}</span>
             <span className="text-2xl font-medium text-white/50">/ {total}</span>
           </div>
           <p className="mt-0.5 text-sm text-white/60">visitas completadas hoy</p>
@@ -86,7 +99,7 @@ export function MiRuta() {
           <div className="relative mt-4 h-3 overflow-hidden rounded-full bg-white/10">
             <div
               className="h-full rounded-full bg-success transition-all duration-500"
-              style={{ width: `${(validated / total) * 100}%` }}
+              style={{ width: `${(visited / total) * 100}%` }}
             >
               {/* Shimmer */}
               <div className="absolute inset-0 animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
@@ -153,7 +166,7 @@ export function MiRuta() {
               <MapPin className="h-5 w-5" />
               <span className="text-base font-bold">REGISTRAR VISITA</span>
             </div>
-            <span className="mt-0.5 text-xs text-white/70">{"Distancia: ~15m"}</span>
+            <span className="mt-0.5 text-xs text-white/70">{"Distancia: ~200m"}</span>
           </button>
 
           {!showNoteField ? (
