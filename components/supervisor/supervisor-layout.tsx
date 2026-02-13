@@ -125,7 +125,7 @@ function EquipoView() {
               <p className="text-lg font-bold text-gray-900">{a.visitas}</p>
               <div className="mt-1 h-1.5 w-20 overflow-hidden rounded-full bg-gray-100">
                 <div
-                  className={`h-full rounded-full transition-all ${a.pct >= 80 ? "bg-success" : a.pct >= 50 ? "bg-warning" : "bg-danger"}`}
+                  className={`h-full rounded-full transition-all ${a.pct >= 80 ? "bg-success" : a.pct >= 60 ? "bg-warning" : "bg-danger"}`}
                   style={{ width: `${a.pct}%` }}
                 />
               </div>

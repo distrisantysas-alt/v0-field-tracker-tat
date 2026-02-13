@@ -98,7 +98,9 @@ export function MiRuta() {
           {/* Progress Bar */}
           <div className="relative mt-4 h-3 overflow-hidden rounded-full bg-white/10">
             <div
-              className="h-full rounded-full bg-success transition-all duration-500"
+              className={`h-full rounded-full transition-all duration-500 ${
+                (visited / total) * 100 >= 80 ? "bg-success" : (visited / total) * 100 >= 60 ? "bg-warning" : "bg-danger"
+              }`}
               style={{ width: `${(visited / total) * 100}%` }}
             >
               {/* Shimmer */}

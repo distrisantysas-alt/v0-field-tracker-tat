@@ -142,11 +142,11 @@ function DashboardView() {
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-medium text-gray-900">Zona {z.zona}</p>
-                    <span className={`text-sm font-bold ${z.pct < 50 ? "text-danger" : "text-warning"}`}>{z.pct}%</span>
+                    <span className={`text-sm font-bold ${z.pct >= 80 ? "text-success" : z.pct >= 60 ? "text-warning" : "text-danger"}`}>{z.pct}%</span>
                   </div>
                   <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
                     <div
-                      className={`h-full rounded-full ${z.pct < 50 ? "bg-danger" : "bg-warning"}`}
+                      className={`h-full rounded-full ${z.pct >= 80 ? "bg-success" : z.pct >= 60 ? "bg-warning" : "bg-danger"}`}
                       style={{ width: `${z.pct}%` }}
                     />
                   </div>
@@ -197,7 +197,7 @@ function AsesoresView() {
                   <div className="flex items-center gap-2">
                     <div className="h-1.5 w-16 overflow-hidden rounded-full bg-gray-100">
                       <div
-                        className={`h-full rounded-full ${a.pct >= 80 ? "bg-success" : a.pct >= 50 ? "bg-warning" : "bg-danger"}`}
+                        className={`h-full rounded-full ${a.pct >= 80 ? "bg-success" : a.pct >= 60 ? "bg-warning" : "bg-danger"}`}
                         style={{ width: `${a.pct}%` }}
                       />
                     </div>
@@ -243,7 +243,7 @@ function ZonasView() {
             <p className="mt-3 text-3xl font-bold text-gray-900">{z.pct}%</p>
             <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-100">
               <div
-                className={`h-full rounded-full ${z.pct >= 80 ? "bg-success" : z.pct >= 50 ? "bg-warning" : "bg-danger"}`}
+                className={`h-full rounded-full ${z.pct >= 80 ? "bg-success" : z.pct >= 60 ? "bg-warning" : "bg-danger"}`}
                 style={{ width: `${z.pct}%` }}
               />
             </div>
