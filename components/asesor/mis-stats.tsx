@@ -1,169 +1,236 @@
-"use client"
+'use client';
 
-import { Flame, Trophy } from "lucide-react"
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  ResponsiveContainer,
-  Cell,
-} from "recharts"
+import { useState, useEffect } from 'react';
+import useSWR from 'swr';
+import { Flame, Trophy, TrendingUp, Loader2 } from 'lucide-react';
 
-const weeklyData = [
-  { day: "Lun", visitas: 18 },
-  { day: "Mar", visitas: 20 },
-  { day: "Mié", visitas: 15 },
-  { day: "Jue", visitas: 19 },
-  { day: "Vie", visitas: 14 },
-  { day: "Sáb", visitas: 0 },
-]
+const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
-const leaderboard = [
-  { pos: 1, name: "Ana Gutiérrez", visitas: 18 },
-  { pos: 2, name: "Carlos Méndez (tú)", visitas: 14 },
-  { pos: 3, name: "Patricia López", visitas: 13 },
-]
+interface DiaStats {
+  fecha: string;
+  visitas: number;
+  pedidos: number;
+  vendido: number;
+}
 
 export function MisStats() {
-  const completed = 14
-  const total = 20
-  const pct = (completed / total) * 100
-  // SVG ring chart params
-  const radius = 60
-  const circumference = 2 * Math.PI * radius
-  const strokeDash = (pct / 100) * circumference
+  const ASESOR_ID = '0a2da93b-5e18-4b2d-882c-d40f8e84b374';
+
+  // Obtener fecha de hoy y últimos 7 días
+  const hoy = new Date().toLocaleString('en-CA', { 
+    timeZone: 'America/Bogota' 
+  }).split(',')[0];
+
+  const hace7Dias = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    .toLocaleString('en-CA', { timeZone: 'America/Bogota' })
+    .split(',')[0];
+
+  // Fetch resumen de la semana
+  const { data, error } = useSWR(
+    `/api/resumen-dia?asesor_id=${ASESOR_ID}&fecha_inicio=${hace7Dias}&fecha_fin=${hoy}&rango=true`,
+    fetcher,
+    { refreshInterval: 60000 }
+  );
+
+  // Fetch resumen de hoy
+  const { data: hoyData } = useSWR(
+    `/api/resumen-dia?asesor_id=${ASESOR_ID}&fecha=${hoy}`,
+    fetcher,
+    { refreshInterval: 30000 }
+  );
+
+  if (error) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-dark">
+        <p className="text-red-500">Error cargando estadísticas</p>
+      </div>
+    );
+  }
+
+  if (!data || !hoyData) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-dark">
+        <Loader2 className="h-8 w-8 animate-spin text-navy-accent" />
+      </div>
+    );
+  }
+
+  // Calcular racha (días consecutivos con visitas)
+  const calcularRacha = () => {
+    if (!data.por_dia) return 0;
+    
+    const diasOrdenados = [...data.por_dia].reverse();
+    let racha = 0;
+    
+    for (const dia of diasOrdenados) {
+      if (dia.visitas > 0) {
+        racha++;
+      } else {
+        break;
+      }
+    }
+    
+    return racha;
+  };
+
+  // Mejor semana (máximo de visitas en un día)
+  const mejorDia = data.por_dia 
+    ? Math.max(...data.por_dia.map((d: DiaStats) => d.visitas))
+    : 0;
+
+  const racha = calcularRacha();
+
+  // Días de la semana
+  const diasSemana = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+  const visitasPorDia = data.por_dia || [];
+
+  // Normalizar datos para el gráfico (últimos 7 días)
+  const ultimos7Dias = Array.from({ length: 7 }, (_, i) => {
+    const fecha = new Date(Date.now() - (6 - i) * 24 * 60 * 60 * 1000);
+    const fechaStr = fecha.toLocaleString('en-CA', { 
+      timeZone: 'America/Bogota' 
+    }).split(',')[0];
+    
+    const diaData = visitasPorDia.find((d: DiaStats) => d.fecha === fechaStr);
+    const diaSemana = diasSemana[fecha.getDay() === 0 ? 6 : fecha.getDay() - 1];
+    
+    return {
+      dia: diaSemana,
+      visitas: diaData?.visitas || 0,
+      esHoy: fechaStr === hoy
+    };
+  });
+
+  const maxVisitas = Math.max(...ultimos7Dias.map(d => d.visitas), 1);
+
+  // Ranking simulado (en producción vendría de API)
+  const ranking = [
+    { nombre: 'Ana Gutiérrez', visitas: 18 },
+    { nombre: 'Carlos Méndez (tú)', visitas: hoyData.metricas.visitas.total, esUsuario: true },
+    { nombre: 'Patricia López', visitas: 13 }
+  ];
 
   return (
-    <div className="flex flex-col px-4 pb-4 pt-4">
-      <h2 className="text-lg font-bold text-white">Mis Estadísticas</h2>
-      <p className="mb-4 text-xs text-gray-400">Rendimiento personal del día y la semana</p>
-
-      {/* Completion Ring */}
-      <div className="mx-auto mb-6 flex flex-col items-center">
-        <div className="relative">
-          <svg width="160" height="160" viewBox="0 0 160 160">
-            {/* Background ring */}
-            <circle
-              cx="80"
-              cy="80"
-              r={radius}
-              fill="none"
-              stroke="rgba(255,255,255,0.08)"
-              strokeWidth="12"
-            />
-            {/* Progress ring */}
-            <circle
-              cx="80"
-              cy="80"
-              r={radius}
-              fill="none"
-              stroke="#1A7A4A"
-              strokeWidth="12"
-              strokeLinecap="round"
-              strokeDasharray={circumference}
-              strokeDashoffset={circumference - strokeDash}
-              transform="rotate(-90 80 80)"
-              className="transition-all duration-700"
-              style={{ filter: "drop-shadow(0 0 6px rgba(26,122,74,0.4))" }}
-            />
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-3xl font-bold text-white">{completed}/{total}</span>
-            <span className="text-xs text-gray-400">hoy</span>
-          </div>
-        </div>
-        <p className="mt-2 text-sm text-success font-medium">{pct.toFixed(0)}% completado</p>
+    <div className="flex flex-col h-screen bg-dark overflow-y-auto pb-20">
+      {/* Header */}
+      <div className="px-4 py-4 bg-dark-surface border-b border-white/10">
+        <h1 className="text-xl font-bold text-white">Mis Estadísticas</h1>
+        <p className="text-sm text-gray-400 mt-1">Rendimiento esta semana</p>
       </div>
 
-      {/* Weekly Bar Chart */}
-      <div className="mb-4 rounded-xl border border-white/5 bg-dark-surface p-4">
-        <h3 className="mb-3 text-sm font-semibold text-white">Visitas esta semana</h3>
-        <div className="h-40">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={weeklyData} barCategoryGap="25%">
-              <XAxis
-                dataKey="day"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fontSize: 11, fill: "#6B7280" }}
-              />
-              <YAxis
-                axisLine={false}
-                tickLine={false}
-                tick={{ fontSize: 10, fill: "#4B5563" }}
-                width={24}
-              />
-              <Bar dataKey="visitas" radius={[4, 4, 0, 0]}>
-                {weeklyData.map((entry, index) => (
-                  <Cell
-                    key={`cell-${index}`}
-                    fill={index === 4 ? "#1A7A4A" : "#1E3A5F"}
+      {/* Gráfico de visitas */}
+      <div className="px-4 py-6">
+        <h2 className="text-white font-semibold mb-4">Visitas esta semana</h2>
+        <div className="flex items-end justify-between h-40 gap-2">
+          {ultimos7Dias.map((dia, index) => {
+            const altura = (dia.visitas / maxVisitas) * 100;
+            return (
+              <div key={index} className="flex-1 flex flex-col items-center gap-2">
+                <div className="w-full flex items-end justify-center h-32">
+                  <div
+                    className={`w-full rounded-t transition-all ${
+                      dia.esHoy ? 'bg-success' : 'bg-navy'
+                    }`}
+                    style={{ height: `${altura}%`, minHeight: dia.visitas > 0 ? '8px' : '0' }}
                   />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+                </div>
+                <span className="text-xs text-gray-400">{dia.dia}</span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* Metric Cards */}
-      <div className="mb-4 grid grid-cols-2 gap-3">
-        <div className="flex items-center gap-3 rounded-xl border border-white/5 bg-dark-surface p-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning/15">
-            <Flame className="h-5 w-5 text-warning" />
+      {/* Cards de métricas */}
+      <div className="px-4 grid grid-cols-2 gap-3 mb-6">
+        {/* Racha actual */}
+        <div className="bg-dark-surface rounded-xl p-4 border border-white/10">
+          <div className="flex items-center gap-2 mb-2">
+            <Flame className="h-5 w-5 text-orange-500" />
+            <span className="text-sm text-gray-400">Racha actual</span>
           </div>
-          <div>
-            <p className="text-lg font-bold text-white">3 días</p>
-            <p className="text-xs text-gray-400">Racha actual</p>
-          </div>
+          <p className="text-3xl font-bold text-white">{racha}</p>
+          <p className="text-xs text-gray-500 mt-1">
+            {racha === 1 ? 'día' : 'días'} consecutivos
+          </p>
         </div>
-        <div className="flex items-center gap-3 rounded-xl border border-white/5 bg-dark-surface p-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-navy-accent/15">
-            <Trophy className="h-5 w-5 text-navy-accent" />
+
+        {/* Mejor semana */}
+        <div className="bg-dark-surface rounded-xl p-4 border border-white/10">
+          <div className="flex items-center gap-2 mb-2">
+            <Trophy className="h-5 w-5 text-yellow-500" />
+            <span className="text-sm text-gray-400">Mejor día</span>
           </div>
-          <div>
-            <p className="text-lg font-bold text-white">112</p>
-            <p className="text-xs text-gray-400">Mejor semana</p>
+          <p className="text-3xl font-bold text-white">{mejorDia}</p>
+          <p className="text-xs text-gray-500 mt-1">visitas en un día</p>
+        </div>
+      </div>
+
+      {/* Métricas de ventas */}
+      <div className="px-4 mb-6">
+        <div className="bg-gradient-to-br from-navy to-navy-accent rounded-xl p-4 border border-white/10">
+          <div className="flex items-center gap-2 mb-3">
+            <TrendingUp className="h-5 w-5 text-success" />
+            <span className="text-sm text-white/80">Esta semana</span>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs text-white/60">Total visitas</p>
+              <p className="text-2xl font-bold text-white">{data.totales.visitas}</p>
+            </div>
+            <div>
+              <p className="text-xs text-white/60">Pedidos</p>
+              <p className="text-2xl font-bold text-success">{data.totales.pedidos}</p>
+            </div>
+            <div className="col-span-2">
+              <p className="text-xs text-white/60">Total vendido</p>
+              <p className="text-2xl font-bold text-white">{data.totales.vendido_formato}</p>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Ranking Card */}
-      <div className="rounded-xl border border-white/5 bg-dark-surface p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-white">Tu posición hoy</h3>
-          <span className="rounded-full bg-navy-accent/15 px-2.5 py-0.5 text-xs font-bold text-navy-accent">
-            #2 de 10
-          </span>
-        </div>
-        <div className="flex flex-col gap-2">
-          {leaderboard.map((entry) => (
+      {/* Ranking */}
+      <div className="px-4">
+        <h2 className="text-white font-semibold mb-3">
+          Tu posición hoy
+          <span className="text-sm text-gray-400 ml-2">#2 de 10</span>
+        </h2>
+        <div className="space-y-2">
+          {ranking.map((item, index) => (
             <div
-              key={entry.pos}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2 ${
-                entry.pos === 2 ? "bg-navy-accent/10 border border-navy-accent/20" : "bg-white/[0.03]"
+              key={index}
+              className={`flex items-center gap-3 p-3 rounded-xl ${
+                item.esUsuario
+                  ? 'bg-navy-accent/20 border border-navy-accent'
+                  : 'bg-dark-surface border border-white/10'
               }`}
             >
-              <span
-                className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold ${
-                  entry.pos === 1
-                    ? "bg-warning/20 text-warning"
-                    : entry.pos === 2
-                      ? "bg-navy-accent/20 text-navy-accent"
-                      : "bg-white/10 text-gray-400"
+              <div
+                className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
+                  index === 0
+                    ? 'bg-yellow-500 text-dark'
+                    : item.esUsuario
+                    ? 'bg-navy-accent text-white'
+                    : 'bg-gray-600 text-gray-300'
                 }`}
               >
-                {entry.pos}
-              </span>
-              <span className={`flex-1 text-sm ${entry.pos === 2 ? "font-semibold text-white" : "text-gray-300"}`}>
-                {entry.name}
-              </span>
-              <span className="font-mono text-sm font-medium text-gray-400">{entry.visitas}</span>
+                {index + 1}
+              </div>
+              <div className="flex-1">
+                <p className={`text-sm font-medium ${item.esUsuario ? 'text-white' : 'text-gray-300'}`}>
+                  {item.nombre}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className={`text-lg font-bold ${item.esUsuario ? 'text-white' : 'text-gray-400'}`}>
+                  {item.visitas}
+                </p>
+              </div>
             </div>
           ))}
         </div>
       </div>
     </div>
-  )
+  );
 }
