@@ -8,16 +8,26 @@
 // - Monto total vendido
 // - Promedio por pedido
 // - Lista detallada de visitas
+// ✅ Zona horaria: Colombia (America/Bogota)
 // ============================================================================
 
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 
+/**
+ * Obtener fecha actual en Colombia
+ */
+function obtenerFechaColombia(): string {
+  return new Date().toLocaleString('en-CA', { 
+    timeZone: 'America/Bogota' 
+  }).split(',')[0];
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const asesor_id = searchParams.get('asesor_id');
-    const fecha = searchParams.get('fecha') || new Date().toISOString().split('T')[0];
+    const fecha = searchParams.get('fecha') || obtenerFechaColombia();
 
     console.log('📊 GET /api/resumen-dia:', { asesor_id, fecha });
 
