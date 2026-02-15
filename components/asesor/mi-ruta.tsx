@@ -10,6 +10,7 @@
 // ✅ Funciona offline (guarda en IndexedDB)
 // ✅ Sincroniza automáticamente cuando vuelve conexión
 // ✅ Valida distancia GPS (<50m = OK, >200m = sospechosa)
+// ✅ Zona horaria: Colombia (America/Bogota)
 // ============================================================================
 
 import { useState, useEffect } from "react"
@@ -76,6 +77,7 @@ const fetcher = (url: string) => fetch(url).then((r) => r.json())
 function getCurrentTime() {
   const now = new Date()
   return now.toLocaleTimeString("es-CO", { 
+    timeZone: "America/Bogota",
     hour: "2-digit", 
     minute: "2-digit", 
     second: "2-digit" 
@@ -92,7 +94,11 @@ function determinarEstadoCliente(cliente: ClienteConEstado): ClientStatus {
 export function MiRuta() {
   // HARDCODED: En producción, obtener del auth/session
   const ASESOR_ID = "0a2da93b-5e18-4b2d-882c-d40f8e84b374" // Carlos Méndez
-  const fecha = new Date().toISOString().split('T')[0]
+  
+  // Obtener fecha actual en zona horaria Colombia
+  const fecha = new Date().toLocaleString('en-CA', { 
+    timeZone: 'America/Bogota' 
+  }).split(',')[0] // Formato: 2026-02-15
 
   // Estado local
   const [showNoteField, setShowNoteField] = useState(false)
