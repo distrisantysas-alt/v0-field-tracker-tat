@@ -4,11 +4,13 @@
 
 import { neon } from '@neondatabase/serverless';
 
-if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL no está definida en las variables de entorno');
+// No lanzar error durante build - solo advertencia
+const DATABASE_URL = process.env.DATABASE_URL || '';
+if (!DATABASE_URL && typeof window === 'undefined') {
+  console.warn('⚠️ DATABASE_URL no definida');
 }
 
-export const sql = neon(process.env.DATABASE_URL);
+export const sql = neon(DATABASE_URL);
 
 // ---------------------------------------------------------------------------
 // TIPOS TYPESCRIPT
