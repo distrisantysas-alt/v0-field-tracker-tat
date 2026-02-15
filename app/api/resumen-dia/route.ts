@@ -28,8 +28,71 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const asesor_id = searchParams.get('asesor_id');
     const fecha = searchParams.get('fecha') || obtenerFechaColombia();
+    const fecha_inicio = searchParams.get('fecha_inicio');
+    const fecha_fin = searchParams.get('fecha_fin');
+    const rango = searchParams.get('rango') === 'true';
 
-    console.log('📊 GET /api/resumen-dia:', { asesor_id, fecha });
+    console.log('📊 GET /api/resumen-dia:', { asesor_id, fecha, rango, fecha_inicio, fecha_fin });
+
+    // Validación
+    if (!asesor_id) {
+      return NextResponse.json(
+        { error: 'asesor_id es requerido' },
+        { status: 400 }
+      );
+    }
+
+    // Si es consulta por rango
+    if (rango && fecha_inicio && fecha_fin) {
+      // Resumen por rango de fechas
+      const resumenPorDia = await sql`
+        SELECT 
+          DATE(timestamp AT TIME ZONE 'America/Bogota') as fecha,
+          COUNT(*) as visitas,
+          COUNT(*) FILTER (WHERE validada = true) as visitas_validadas,
+          COUNT(*) FILTER (WHERE hubo_pedido = true) as pedidos,
+          COALESCE(SUM(valor_pedido), 0) as vendido
+        FROM visitas
+        WHERE asesor_id = ${asesor_id}
+          AND DATE(timestamp AT TIME ZONE 'America/Bogota') BETWEEN ${fecha_inicio}::date AND ${fecha_fin}::date
+        GROUP BY DATE(timestamp AT TIME ZONE 'America/Bogota')
+        ORDER BY DATE(timestamp AT TIME ZONE 'America/Bogota') DESC
+      `;
+
+      // Totales del periodo
+      const totales = await sql`
+        SELECT 
+          COUNT(*) as visitas,
+          COUNT(*) FILTER (WHERE hubo_pedido = true) as pedidos,
+          COALESCE(SUM(valor_pedido), 0) as vendido
+        FROM visitas
+        WHERE asesor_id = ${asesor_id}
+          AND DATE(timestamp AT TIME ZONE 'America/Bogota') BETWEEN ${fecha_inicio}::date AND ${fecha_fin}::date
+      `;
+
+      return NextResponse.json({
+        success: true,
+        asesor_id,
+        periodo: {
+          inicio: fecha_inicio,
+          fin: fecha_fin
+        },
+        totales: {
+          visitas: parseInt(totales[0]?.visitas || 0),
+          pedidos: parseInt(totales[0]?.pedidos || 0),
+          vendido: parseFloat(totales[0]?.vendido || 0),
+          vendido_formato: `$${parseFloat(totales[0]?.vendido || 0).toLocaleString('es-CO')}`
+        },
+        por_dia: resumenPorDia.map(r => ({
+          fecha: r.fecha,
+          visitas: parseInt(r.visitas),
+          validadas: parseInt(r.visitas_validadas),
+          pedidos: parseInt(r.pedidos),
+          vendido: parseFloat(r.vendido),
+          vendido_formato: `$${parseFloat(r.vendido).toLocaleString('es-CO')}`
+        }))
+      });
+    }
 
     // Validación
     if (!asesor_id) {
