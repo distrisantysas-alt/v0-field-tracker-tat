@@ -169,7 +169,7 @@ export function MiRuta() {
     return () => clearInterval(interval)
   }, [])
 
-  // Encontrar cliente más cercano pendiente
+  // Encontrar cliente más cercano pendiente (OPCIONAL - ya no se auto-selecciona)
   useEffect(() => {
     if (!data?.clientes || !userLocation) return
 
@@ -182,27 +182,8 @@ export function MiRuta() {
       return
     }
 
-    // Calcular distancia a cada cliente pendiente
-    const clientesConDistancia = clientesPendientes.map((cliente: ClienteConEstado) => {
-      const R = 6371000 // Radio tierra en metros
-      const toRad = (deg: number) => (deg * Math.PI) / 180
-      const dLat = toRad(cliente.lat - userLocation.lat)
-      const dLng = toRad(cliente.lng - userLocation.lng)
-      const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(toRad(userLocation.lat)) *
-          Math.cos(toRad(cliente.lat)) *
-          Math.sin(dLng / 2) *
-          Math.sin(dLng / 2)
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-      const distancia = R * c
-
-      return { ...cliente, distancia_calculada: distancia }
-    })
-
-    // Ordenar por distancia y seleccionar el más cercano
-    clientesConDistancia.sort((a, b) => a.distancia_calculada - b.distancia_calculada)
-    setSelectedCliente(clientesConDistancia[0])
+    // NO auto-seleccionar - dejar que el usuario elija
+    // Si no hay cliente seleccionado, se puede sugerir el más cercano visualmente
   }, [data, userLocation])
 
   // Validar pedido antes de enviar
@@ -421,7 +402,10 @@ export function MiRuta() {
           return (
             <div
               key={cliente.id}
+              onClick={() => !cliente.visitado_en && setSelectedCliente(cliente)}
               className={`flex overflow-hidden rounded-xl border transition-all duration-200 active:scale-[0.98] ${
+                !cliente.visitado_en ? "cursor-pointer" : "cursor-default"
+              } ${
                 isSelected
                   ? "border-navy-accent bg-navy-accent/10"
                   : "border-white/5 bg-dark-surface"
@@ -516,7 +500,9 @@ export function MiRuta() {
                   placeholder="0"
                   min="0"
                   step="1000"
-                  className="flex-1 rounded-lg border border-white/10 bg-dark px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:border-navy-accent focus:outline-none"
+                  autoFocus
+                  inputMode="numeric"
+                  className="flex-1 rounded-lg border border-white/10 bg-navy px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:border-navy-accent focus:outline-none focus:ring-2 focus:ring-navy-accent/50"
                 />
               </div>
             )}
