@@ -6,6 +6,7 @@
 // Funcionalidades:
 // ✅ Carga datos reales desde /api/clientes-del-dia
 // ✅ Captura GPS y registra visitas
+// ✅ Registro de pedidos (hubo_pedido, valor_pedido)
 // ✅ Funciona offline (guarda en IndexedDB)
 // ✅ Sincroniza automáticamente cuando vuelve conexión
 // ✅ Valida distancia GPS (<50m = OK, >200m = sospechosa)
@@ -13,7 +14,7 @@
 
 import { useState, useEffect } from "react"
 import useSWR from "swr"
-import { Bell, MapPin, Check, AlertTriangle, Clock, X, Loader2, Wifi, WifiOff } from "lucide-react"
+import { Bell, MapPin, Check, AlertTriangle, Clock, X, Loader2, Wifi, WifiOff, DollarSign } from "lucide-react"
 import {
   type ClienteConEstado,
   formatearDistancia,
@@ -101,6 +102,8 @@ export function MiRuta() {
   const [selectedCliente, setSelectedCliente] = useState<ClienteConEstado | null>(null)
   const [nota, setNota] = useState("")
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [huboPedido, setHuboPedido] = useState(false)
+  const [valorPedido, setValorPedido] = useState("")
 
   // Fetch datos desde API
   const { data, error, mutate } = useSWR(
@@ -202,9 +205,19 @@ export function MiRuta() {
     setSelectedCliente(clientesConDistancia[0])
   }, [data, userLocation])
 
+  // Validar pedido antes de enviar
+  const validarPedido = (): boolean => {
+    if (huboPedido && (!valorPedido || parseFloat(valorPedido) <= 0)) {
+      alert('Si hubo pedido, debes especificar un valor válido')
+      return false
+    }
+    return true
+  }
+
   // Manejar check-in
   const handleCheckin = async () => {
     if (!selectedCliente || !userLocation) return
+    if (!validarPedido()) return
 
     setIsCheckinLoading(true)
 
@@ -215,6 +228,8 @@ export function MiRuta() {
         lat: userLocation.lat,
         lng: userLocation.lng,
         notas: nota || null,
+        hubo_pedido: huboPedido,
+        valor_pedido: huboPedido ? parseFloat(valorPedido) : 0
       }
 
       if (hayConexion()) {
@@ -228,7 +243,7 @@ export function MiRuta() {
         if (!response.ok) throw new Error('Error registrando visita')
 
         const result = await response.json()
-        console.log('✅ Visita registrada:', result.mensaje)
+        console.log('✅ Visita registrada:', result.mensajes)
       } else {
         // OFFLINE: Guardar en IndexedDB
         await guardarVisitaOffline({
@@ -246,6 +261,8 @@ export function MiRuta() {
 
       // Limpiar estado
       setNota("")
+      setHuboPedido(false)
+      setValorPedido("")
       setShowNoteField(false)
       setSelectedCliente(null)
 
@@ -477,6 +494,35 @@ export function MiRuta() {
             )}
           </button>
 
+          {/* Campos de Pedido */}
+          <div className="mt-2 space-y-2 rounded-lg border border-white/10 bg-dark-surface p-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={huboPedido}
+                onChange={(e) => setHuboPedido(e.target.checked)}
+                className="h-4 w-4 rounded border-white/20 bg-white/10 text-success focus:ring-success"
+              />
+              <span className="text-sm font-medium text-white">¿Hubo pedido?</span>
+            </label>
+            
+            {huboPedido && (
+              <div className="flex items-center gap-2 pt-1">
+                <DollarSign className="h-4 w-4 text-gray-400" />
+                <input
+                  type="number"
+                  value={valorPedido}
+                  onChange={(e) => setValorPedido(e.target.value)}
+                  placeholder="0"
+                  min="0"
+                  step="1000"
+                  className="flex-1 rounded-lg border border-white/10 bg-dark px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:border-navy-accent focus:outline-none"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Campo de Notas */}
           {!showNoteField ? (
             <button
               onClick={() => setShowNoteField(true)}
