@@ -9,10 +9,20 @@
 // ✅ Manejo robusto de errores
 // ✅ Prevención de duplicados
 // ✅ Logs detallados
+// ✅ Zona horaria: Colombia (America/Bogota)
 // ============================================================================
 
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+
+/**
+ * Obtener fecha actual en Colombia
+ */
+function obtenerFechaColombia(): string {
+  return new Date().toLocaleString('en-CA', { 
+    timeZone: 'America/Bogota' 
+  }).split(',')[0];
+}
 
 export async function POST(req: NextRequest) {
   try {
