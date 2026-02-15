@@ -110,6 +110,7 @@ export function MiRuta() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [huboPedido, setHuboPedido] = useState(false)
   const [valorPedido, setValorPedido] = useState("")
+  const [mostrarResumen, setMostrarResumen] = useState(false)
 
   // Fetch datos desde API
   const { data, error, mutate } = useSWR(
@@ -117,6 +118,16 @@ export function MiRuta() {
     fetcher,
     {
       refreshInterval: 30000, // Refrescar cada 30 segundos
+      revalidateOnFocus: true,
+    }
+  )
+
+  // Fetch resumen del día
+  const { data: resumenData } = useSWR(
+    `/api/resumen-dia?asesor_id=${ASESOR_ID}&fecha=${fecha}`,
+    fetcher,
+    {
+      refreshInterval: 30000,
       revalidateOnFocus: true,
     }
   )
@@ -252,6 +263,7 @@ export function MiRuta() {
       setValorPedido("")
       setShowNoteField(false)
       setSelectedCliente(null)
+      setMostrarResumen(true)  // Mostrar resumen
 
       // Refrescar datos
       mutate()
@@ -378,6 +390,39 @@ export function MiRuta() {
           </div>
         </div>
       </div>
+
+      {/* Resumen del Día (si hay visitas) */}
+      {resumenData && resumenData.metricas.visitas.total > 0 && (
+        <div className="mx-4 mt-4 overflow-hidden rounded-xl bg-gradient-to-br from-navy-accent/20 to-success/10 border border-navy-accent/30 p-4">
+          <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+            <DollarSign className="h-4 w-4" />
+            Resumen del Día
+          </h3>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="text-center">
+              <p className="text-xs text-white/60">Pedidos</p>
+              <p className="text-2xl font-bold text-success">
+                {resumenData.metricas.pedidos.efectivos}
+              </p>
+              <p className="text-xs text-white/40">
+                {resumenData.metricas.pedidos.tasa_conversion}
+              </p>
+            </div>
+            <div className="text-center border-l border-r border-white/10">
+              <p className="text-xs text-white/60">Total</p>
+              <p className="text-lg font-bold text-white">
+                {resumenData.metricas.pedidos.total_vendido_formato}
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-white/60">Promedio</p>
+              <p className="text-lg font-bold text-white">
+                {resumenData.metricas.pedidos.promedio_pedido_formato}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Client List */}
       <div className="mt-4 flex flex-col gap-2.5 px-4 pb-32">
