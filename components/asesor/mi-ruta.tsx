@@ -90,7 +90,7 @@ function determinarEstadoCliente(cliente: ClienteConEstado): ClientStatus {
 
 export function MiRuta() {
   // HARDCODED: En producción, obtener del auth/session
-  const ASESOR_ID = 1 // Carlos Méndez
+  const ASESOR_ID = "0a2da93b-5e18-4b2d-882c-d40f8e84b374" // Carlos Méndez
   const fecha = new Date().toISOString().split('T')[0]
 
   // Estado local
