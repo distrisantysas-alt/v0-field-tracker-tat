@@ -5,7 +5,7 @@
 import { neon } from '@neondatabase/serverless';
 
 // No lanzar error durante build - solo advertencia
-const DATABASE_URL = process.env.DATABASE_URL || '';
+const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://dummy@localhost/dummy';
 if (!DATABASE_URL && typeof window === 'undefined') {
   console.warn('⚠️ DATABASE_URL no definida');
 }
