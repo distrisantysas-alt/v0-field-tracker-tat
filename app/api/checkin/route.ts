@@ -1,14 +1,14 @@
 // ============================================================================
 // app/api/checkin/route.ts - API endpoint para registro de visitas
 // ============================================================================
-// Mejoras aplicadas:
+// Funcionalidades:
+// ✅ Check-in con GPS y validación de distancia
 // ✅ Soporte para visitas offline (offline_id)
+// ✅ Registro de pedidos (hubo_pedido, valor_pedido)
 // ✅ Validación de datos de entrada
-// ✅ Manejo robusto de errores con detalles para debugging
-// ✅ Logs detallados
+// ✅ Manejo robusto de errores
 // ✅ Prevención de duplicados
-// ✅ GPS timeout mejorado (manejado en cliente)
-// ✅ Verificación de función haversine_metros con mensaje claro
+// ✅ Logs detallados
 // ============================================================================
 
 import { sql } from '@/lib/db';
@@ -17,17 +17,30 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { asesor_id, cliente_id, lat, lng, notas, offline_id } = body;
+    const { 
+      asesor_id, 
+      cliente_id, 
+      lat, 
+      lng, 
+      notas, 
+      offline_id,
+      hubo_pedido,
+      valor_pedido 
+    } = body;
 
     console.log('📍 Checkin request recibido:', { 
       asesor_id, 
       cliente_id, 
       lat, 
       lng, 
+      hubo_pedido,
+      valor_pedido,
       offline_id: offline_id || 'ninguno' 
     });
 
-    // Validación de campos requeridos
+    // ========================================
+    // VALIDACIÓN DE CAMPOS REQUERIDOS
+    // ========================================
     if (!asesor_id || !cliente_id || lat == null || lng == null) {
       console.error('❌ Campos requeridos faltantes:', { asesor_id, cliente_id, lat, lng });
       return NextResponse.json(
@@ -44,7 +57,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Convertir a números y validar
+    // ========================================
+    // VALIDACIÓN DE COORDENADAS
+    // ========================================
     const latNum = parseFloat(lat);
     const lngNum = parseFloat(lng);
 
@@ -56,7 +71,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validación de rango de coordenadas
     if (latNum < -90 || latNum > 90 || lngNum < -180 || lngNum > 180) {
       console.error('❌ Coordenadas fuera de rango:', { lat: latNum, lng: lngNum });
       return NextResponse.json(
@@ -65,11 +79,40 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Si viene con offline_id, verificar que no se haya sincronizado antes
+    // ========================================
+    // VALIDACIÓN DE PEDIDO
+    // ========================================
+    const huboPedidoBool = hubo_pedido === true || hubo_pedido === 'true';
+    let valorPedidoNum = 0;
+
+    if (huboPedidoBool) {
+      if (valor_pedido == null || valor_pedido === '') {
+        console.error('❌ Pedido marcado pero sin valor');
+        return NextResponse.json(
+          { error: 'Si hubo pedido, debes especificar el valor' },
+          { status: 400 }
+        );
+      }
+
+      valorPedidoNum = parseFloat(valor_pedido);
+      
+      if (isNaN(valorPedidoNum) || valorPedidoNum < 0) {
+        console.error('❌ Valor de pedido inválido:', valor_pedido);
+        return NextResponse.json(
+          { error: 'El valor del pedido debe ser un número positivo' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // ========================================
+    // PREVENCIÓN DE DUPLICADOS (offline)
+    // ========================================
     if (offline_id) {
       try {
         const existe = await sql`
-          SELECT id FROM visitas 
+          SELECT id, timestamp, hubo_pedido, valor_pedido 
+          FROM visitas 
           WHERE offline_id = ${offline_id}
           LIMIT 1
         `;
@@ -79,6 +122,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({
             mensaje: 'Visita ya registrada previamente',
             visita: existe[0],
+            duplicado: true
           });
         }
       } catch (error) {
@@ -87,7 +131,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Obtener datos del cliente
+    // ========================================
+    // OBTENER DATOS DEL CLIENTE
+    // ========================================
     const clientes = await sql`
       SELECT id, codigo, nombre, lat, lng, radio_metros
       FROM clientes 
@@ -109,7 +155,9 @@ export async function POST(req: NextRequest) {
       radio_metros: cliente.radio_metros 
     });
 
-    // Calcular distancia usando la función Haversine en PostgreSQL
+    // ========================================
+    // CALCULAR DISTANCIA CON HAVERSINE
+    // ========================================
     let distanciaMetros = 0;
     try {
       const distanciaResult = await sql`
@@ -139,31 +187,12 @@ export async function POST(req: NextRequest) {
           { 
             error: 'Error calculando distancia',
             details: 'La función haversine_metros() no existe en la base de datos.',
-            solucion: 'Ejecuta el siguiente SQL en Neon:\n\n' +
-                     'CREATE OR REPLACE FUNCTION haversine_metros(\n' +
-                     '  lat1 DOUBLE PRECISION, lon1 DOUBLE PRECISION,\n' +
-                     '  lat2 DOUBLE PRECISION, lon2 DOUBLE PRECISION\n' +
-                     ') RETURNS DOUBLE PRECISION AS $$\n' +
-                     'DECLARE\n' +
-                     '  R CONSTANT DOUBLE PRECISION := 6371000;\n' +
-                     '  dLat DOUBLE PRECISION; dLon DOUBLE PRECISION;\n' +
-                     '  a DOUBLE PRECISION; c DOUBLE PRECISION;\n' +
-                     'BEGIN\n' +
-                     '  dLat := radians(lat2 - lat1);\n' +
-                     '  dLon := radians(lon2 - lon1);\n' +
-                     '  a := sin(dLat/2) * sin(dLat/2) +\n' +
-                     '       cos(radians(lat1)) * cos(radians(lat2)) *\n' +
-                     '       sin(dLon/2) * sin(dLon/2);\n' +
-                     '  c := 2 * atan2(sqrt(a), sqrt(1-a));\n' +
-                     '  RETURN R * c;\n' +
-                     'END;\n' +
-                     '$$ LANGUAGE plpgsql IMMUTABLE;'
+            solucion: 'Ejecuta el script setup-database-COMPLETO.sql en Neon SQL Editor'
           },
           { status: 500 }
         );
       }
 
-      // Otros errores de base de datos
       return NextResponse.json(
         { 
           error: 'Error calculando distancia',
@@ -175,7 +204,9 @@ export async function POST(req: NextRequest) {
 
     const validada = distanciaMetros <= cliente.radio_metros;
 
-    // Registrar la visita
+    // ========================================
+    // REGISTRAR LA VISITA
+    // ========================================
     const visitas = await sql`
       INSERT INTO visitas (
         asesor_id, 
@@ -186,7 +217,9 @@ export async function POST(req: NextRequest) {
         validada, 
         notas,
         offline_id,
-        synced
+        synced,
+        hubo_pedido,
+        valor_pedido
       ) VALUES (
         ${asesor_id}, 
         ${cliente_id},
@@ -196,7 +229,9 @@ export async function POST(req: NextRequest) {
         ${validada}, 
         ${notas ?? null},
         ${offline_id ?? null},
-        ${offline_id ? false : true}
+        ${offline_id ? false : true},
+        ${huboPedidoBool},
+        ${valorPedidoNum}
       )
       RETURNING *
     `;
@@ -204,7 +239,9 @@ export async function POST(req: NextRequest) {
     const visita = visitas[0];
     console.log('💾 Visita registrada con ID:', visita.id);
 
-    // Marcar como completada en la ruta del día
+    // ========================================
+    // MARCAR RUTA COMO COMPLETADA
+    // ========================================
     try {
       const rutasActualizadas = await sql`
         UPDATE rutas_dia 
@@ -225,16 +262,23 @@ export async function POST(req: NextRequest) {
       // No fallar toda la operación por esto
     }
 
-    // Log del resultado
-    const emoji = validada ? '✅' : '⚠️';
-    const mensaje = validada
+    // ========================================
+    // GENERAR MENSAJE DE RESPUESTA
+    // ========================================
+    const emojiDistancia = validada ? '✅' : '⚠️';
+    const mensajeDistancia = validada
       ? `Visita validada — ${Math.round(distanciaMetros)}m del cliente`
       : `Visita fuera de rango — ${Math.round(distanciaMetros)}m (máximo ${cliente.radio_metros}m)`;
 
+    const mensajePedido = huboPedidoBool 
+      ? `💰 Pedido registrado: $${valorPedidoNum.toLocaleString('es-CO')}`
+      : '📋 Visita sin pedido';
+
     console.log(
-      `${emoji} Visita registrada:`,
+      `${emojiDistancia} Visita registrada:`,
       `Asesor ${asesor_id} → Cliente ${cliente.codigo} (${cliente.nombre})`,
       `Distancia: ${Math.round(distanciaMetros)}m`,
+      mensajePedido,
       offline_id ? `[OFFLINE: ${offline_id}]` : '[ONLINE]'
     );
 
@@ -249,9 +293,14 @@ export async function POST(req: NextRequest) {
         },
         distancia_metros: Math.round(distanciaMetros),
         validada,
+        hubo_pedido: huboPedidoBool,
+        valor_pedido: valorPedidoNum,
         timestamp: visita.timestamp,
       },
-      mensaje: `${emoji} ${mensaje}`,
+      mensajes: {
+        distancia: `${emojiDistancia} ${mensajeDistancia}`,
+        pedido: mensajePedido
+      }
     });
 
   } catch (error) {
@@ -271,7 +320,9 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Endpoint adicional para marcar visitas offline como sincronizadas
+// ============================================================================
+// PATCH - Marcar visitas offline como sincronizadas
+// ============================================================================
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
@@ -325,12 +376,19 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-// Método GET para health check del endpoint
+// ============================================================================
+// GET - Health check del endpoint
+// ============================================================================
 export async function GET() {
   return NextResponse.json({
     status: 'ok',
     endpoint: '/api/checkin',
     methods: ['POST', 'PATCH'],
-    version: '2.0'
+    campos_requeridos: {
+      POST: ['asesor_id', 'cliente_id', 'lat', 'lng'],
+      POST_opcional: ['notas', 'offline_id', 'hubo_pedido', 'valor_pedido'],
+      PATCH: ['offline_id']
+    },
+    version: '3.0'
   });
 }
