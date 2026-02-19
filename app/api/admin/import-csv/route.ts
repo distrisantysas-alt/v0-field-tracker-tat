@@ -40,13 +40,23 @@ function parsearCoordenadas(ubicacion: string | null): { lat: number; lng: numbe
 
 /**
  * Parsear CSV a array de objetos
+ * Maneja punto y coma (;) como delimitador
  */
 function parseCSV(text: string): any[] {
   const lines = text.split('\n');
   if (lines.length < 3) return [];
   
   // Saltar primeras 2 filas decorativas, headers en fila 3
-  const headers = lines[2].split(',').map(h => h.trim().replace(/"/g, ''));
+  const headerLine = lines[2];
+  const headers = headerLine.split(';').map(h => {
+    // Limpiar headers y normalizar
+    let clean = h.trim().replace(/"/g, '');
+    // Manejar caracteres especiales en UBICACIÓN
+    if (clean.includes('UBICACI')) {
+      clean = 'UBICACIÓN';
+    }
+    return clean;
+  });
   
   const data = [];
   
@@ -54,9 +64,15 @@ function parseCSV(text: string): any[] {
     const line = lines[i].trim();
     if (!line) continue;
     
-    const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
+    // Split por punto y coma
+    const values = line.split(';').map(v => {
+      let clean = v.trim().replace(/^"|"$/g, ''); // Quitar comillas de inicio/fin
+      // Limpiar saltos de línea internos
+      clean = clean.replace(/\n/g, '').replace(/\\n/g, '');
+      return clean || null;
+    });
     
-    if (values.length < headers.length) continue;
+    if (values.length < headers.length - 2) continue; // Permitir algunas columnas faltantes
     
     const row: any = {};
     headers.forEach((header, index) => {
