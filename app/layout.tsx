@@ -1,29 +1,28 @@
-import type { Metadata, Viewport } from 'next'
-import { IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google'
+// ============================================================================
+// app/layout.tsx — CON SOPORTE PWA COMPLETO
+// ============================================================================
 
-import './globals.css'
+import type { Metadata, Viewport } from "next"
+import { Inter } from "next/font/google"
+import "./globals.css"
+import { PWAInstaller } from "@/components/pwa-installer"
 
-const ibmPlexSans = IBM_Plex_Sans({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-ibm-plex-sans',
-})
-
-const ibmPlexMono = IBM_Plex_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500'],
-  variable: '--font-ibm-plex-mono',
-})
+const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: 'Field Tracker TAT',
-  description: 'Sistema de gestión de visitas en campo para equipos de ventas TAT',
-  manifest: '/manifest.json',
+  title: "Field Tracker TAT",
+  description: "Sistema de gestión de visitas en campo",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "TAT",
+  },
 }
 
 export const viewport: Viewport = {
-  themeColor: '#0F1923',
-  width: 'device-width',
+  themeColor: "#1a2744",
+  width: "device-width",
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
@@ -31,12 +30,23 @@ export const viewport: Viewport = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode
-}>) {
+}) {
   return (
-    <html lang="es" className={`${ibmPlexSans.variable} ${ibmPlexMono.variable}`}>
-      <body className="font-sans antialiased">{children}</body>
+    <html lang="es">
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="TAT" />
+        <meta name="mobile-web-app-capable" content="yes" />
+      </head>
+      <body className={inter.className}>
+        {children}
+        <PWAInstaller />
+      </body>
     </html>
   )
 }
