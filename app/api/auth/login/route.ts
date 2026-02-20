@@ -1,10 +1,6 @@
 // ============================================================================
 // app/api/auth/login/route.ts
 // ============================================================================
-// Login del asesor por email — busca en tabla asesores
-// POST { email } → retorna { asesor } o error 401
-// ============================================================================
-
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -13,16 +9,13 @@ export async function POST(req: NextRequest) {
     const { email } = await req.json();
 
     if (!email || typeof email !== 'string') {
-      return NextResponse.json(
-        { error: 'Email requerido' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Email requerido' }, { status: 400 });
     }
 
     const emailLimpio = email.trim().toLowerCase();
 
     const result = await sql`
-      SELECT id, nombre, email, zona, activo
+      SELECT id, nombre, email, zona, activo, rol
       FROM asesores
       WHERE LOWER(email) = ${emailLimpio}
       LIMIT 1
@@ -30,7 +23,7 @@ export async function POST(req: NextRequest) {
 
     if (result.length === 0) {
       return NextResponse.json(
-        { error: 'No se encontró un asesor con ese email' },
+        { error: 'No se encontró un usuario con ese email' },
         { status: 401 }
       );
     }
@@ -39,7 +32,7 @@ export async function POST(req: NextRequest) {
 
     if (!asesor.activo) {
       return NextResponse.json(
-        { error: 'Esta cuenta está inactiva. Contacta a tu supervisor.' },
+        { error: 'Esta cuenta está inactiva. Contacta a tu administrador.' },
         { status: 403 }
       );
     }
@@ -47,18 +40,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       asesor: {
-        id: asesor.id,
+        id:     asesor.id,
         nombre: asesor.nombre,
-        email: asesor.email,
-        zona: asesor.zona,
+        email:  asesor.email,
+        zona:   asesor.zona,
+        rol:    asesor.rol,
       },
     });
 
   } catch (error) {
     console.error('Error en login:', error);
-    return NextResponse.json(
-      { error: 'Error del servidor' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Error del servidor' }, { status: 500 });
   }
 }
