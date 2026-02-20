@@ -19,7 +19,6 @@ export default function AdminImportBatch() {
       setError(null);
       setStats(null);
       
-      // Leer como texto
       const text = await selectedFile.text();
       setCsvText(text);
     }
@@ -39,7 +38,7 @@ export default function AdminImportBatch() {
     try {
       // PASO 1: Parsear CSV
       setStatus('Parseando CSV...');
-      const parseResponse = await fetch('/api/admin/import-csv-batch', {
+      const parseResponse = await fetch('/api/admin/import-csv', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'parse', csvText }),
@@ -60,7 +59,7 @@ export default function AdminImportBatch() {
       let totalOmitidos = 0;
       
       while (true) {
-        const batchResponse = await fetch('/api/admin/import-csv-batch', {
+        const batchResponse = await fetch('/api/admin/import-csv', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
@@ -83,7 +82,6 @@ export default function AdminImportBatch() {
         setStatus(`Progreso: ${batchData.progress}% - Importados: ${totalImportados} | Omitidos: ${totalOmitidos}`);
 
         if (!batchData.hasMore) {
-          // Terminado
           setStats({
             clientes_importados: totalImportados,
             clientes_omitidos: totalOmitidos,
