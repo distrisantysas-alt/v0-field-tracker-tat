@@ -1,169 +1,30 @@
 "use client"
 
 // ============================================================================
-// components/asesor/login-asesor.tsx
-// ============================================================================
-// Pantalla de login del asesor con email
-// Busca en tabla asesores via /api/auth/login
-// Guarda sesión en localStorage
+// components/asesor/asesor-layout.tsx (CORREGIDO)
 // ============================================================================
 
-import { useState } from "react"
-import { Loader2, Mail, ArrowRight, AlertCircle } from "lucide-react"
+import { useState, useEffect } from "react"
+import { MapPin, Map, BarChart2, ChevronLeft } from "lucide-react"
+import { MiRuta } from "./mi-ruta"
+import { MapaTab } from "./mapa-tab"
+import { MisStats } from "./mis-stats"
+import { LoginAsesor, clearAsesorSession, type AsesorSession } from "./login-asesor"
 
-export interface AsesorSession {
-  id: string
-  nombre: string
-  email: string
-  zona: string | null
-}
+const tabs = [
+  { id: "ruta", label: "Mi Ruta", icon: MapPin },
+  { id: "mapa", label: "Mapa", icon: Map },
+  { id: "stats", label: "Mis Stats", icon: BarChart2 },
+] as const
 
-interface LoginAsesorProps {
-  onLogin: (asesor: AsesorSession) => void
+type TabId = (typeof tabs)[number]["id"]
+
+interface AsesorLayoutProps {
   onBack: () => void
 }
 
-export function LoginAsesor({ onLogin, onBack }: LoginAsesorProps) {
-  const [email, setEmail] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
-
-  const handleSubmit = async () => {
-    const emailTrimmed = email.trim()
-    if (!emailTrimmed) {
-      setError("Ingresa tu email")
-      return
-    }
-
-    setLoading(true)
-    setError("")
-
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: emailTrimmed }),
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        setError(data.error || "Error al iniciar sesión")
-        return
-      }
-
-      // Guardar sesión en localStorage
-      localStorage.setItem("asesor_session", JSON.stringify(data.asesor))
-
-      onLogin(data.asesor)
-    } catch (err) {
-      setError("Error de conexión. Verifica tu internet.")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") handleSubmit()
-  }
-
-  // Iniciales del email para el avatar placeholder
-  const initials = email.trim().slice(0, 2).toUpperCase() || "??"
-
-  return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-dark-bg px-6 py-12">
-
-      {/* Back button */}
-      <button
-        onClick={onBack}
-        className="absolute left-4 top-4 p-2 text-gray-500 hover:text-white transition-colors"
-      >
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="1.5"
-            strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-
-      {/* Avatar circular animado */}
-      <div className="mb-8 relative">
-        <div className="h-20 w-20 rounded-full bg-gradient-to-br from-navy to-navy-accent flex items-center justify-center">
-          <span className="text-2xl font-bold text-white">{initials}</span>
-        </div>
-        <div className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-success border-2 border-dark-bg" />
-      </div>
-
-      {/* Título */}
-      <div className="mb-8 text-center">
-        <h1 className="text-2xl font-bold text-white mb-1">Asesor Comercial</h1>
-        <p className="text-sm text-gray-400">Ingresa con tu email registrado</p>
-      </div>
-
-      {/* Campo email */}
-      <div className="w-full max-w-sm space-y-4">
-        <div className="relative">
-          <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-500" />
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => {
-              setEmail(e.target.value)
-              setError("")
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder="tu@email.com"
-            autoComplete="email"
-            autoFocus
-            inputMode="email"
-            className={`w-full rounded-xl border bg-dark-surface pl-12 pr-4 py-4 text-white placeholder-gray-500 
-              focus:outline-none focus:ring-2 transition-all
-              ${error
-                ? "border-danger focus:ring-danger/30"
-                : "border-white/10 focus:border-navy-accent focus:ring-navy-accent/30"
-              }`}
-          />
-        </div>
-
-        {/* Error */}
-        {error && (
-          <div className="flex items-center gap-2 rounded-lg bg-danger/10 border border-danger/20 px-3 py-2">
-            <AlertCircle className="h-4 w-4 text-danger shrink-0" />
-            <p className="text-sm text-danger">{error}</p>
-          </div>
-        )}
-
-        {/* Botón */}
-        <button
-          onClick={handleSubmit}
-          disabled={loading || !email.trim()}
-          className="flex w-full items-center justify-center gap-3 rounded-xl bg-navy-accent py-4 font-semibold text-white
-            transition-all active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed
-            hover:bg-navy-accent/90 shadow-lg shadow-navy-accent/20"
-        >
-          {loading ? (
-            <>
-              <Loader2 className="h-5 w-5 animate-spin" />
-              <span>Verificando...</span>
-            </>
-          ) : (
-            <>
-              <span>Ingresar</span>
-              <ArrowRight className="h-5 w-5" />
-            </>
-          )}
-        </button>
-
-        <p className="text-center text-xs text-gray-600 mt-4">
-          Tu email debe estar registrado por tu supervisor
-        </p>
-      </div>
-    </div>
-  )
-}
-
-// ============================================================================
-// Hook para manejar la sesión del asesor
-// ============================================================================
-export function useAsesorSession(): AsesorSession | null {
+// Lee la sesión directamente desde localStorage (sin importar useAsesorSession)
+function getSessionFromStorage(): AsesorSession | null {
   if (typeof window === "undefined") return null
   try {
     const raw = localStorage.getItem("asesor_session")
@@ -174,8 +35,76 @@ export function useAsesorSession(): AsesorSession | null {
   }
 }
 
-export function clearAsesorSession() {
-  if (typeof window !== "undefined") {
-    localStorage.removeItem("asesor_session")
+export function AsesorLayout({ onBack }: AsesorLayoutProps) {
+  const [activeTab, setActiveTab] = useState<TabId>("ruta")
+  const [asesor, setAsesor] = useState<AsesorSession | null>(null)
+  const [checkingSession, setCheckingSession] = useState(true)
+
+  useEffect(() => {
+    const session = getSessionFromStorage()
+    if (session) {
+      setAsesor(session)
+    }
+    setCheckingSession(false)
+  }, [])
+
+  const handleLogin = (asesorData: AsesorSession) => {
+    setAsesor(asesorData)
   }
+
+  const handleLogout = () => {
+    clearAsesorSession()
+    setAsesor(null)
+    onBack()
+  }
+
+  if (checkingSession) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-dark-bg">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-navy-accent border-t-transparent" />
+      </div>
+    )
+  }
+
+  if (!asesor) {
+    return <LoginAsesor onLogin={handleLogin} onBack={onBack} />
+  }
+
+  return (
+    <div className="flex min-h-screen flex-col bg-dark-bg">
+      <main className="flex-1 overflow-y-auto pb-20">
+        {activeTab === "ruta" && <MiRuta asesor={asesor} />}
+        {activeTab === "mapa" && <MapaTab />}
+        {activeTab === "stats" && <MisStats asesor={asesor} />}
+      </main>
+
+      <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-dark-bg/95 backdrop-blur-md">
+        <div className="flex items-center justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <button
+            onClick={handleLogout}
+            className="flex flex-col items-center gap-0.5 px-3 py-1.5 text-gray-500 transition-colors hover:text-gray-300"
+          >
+            <ChevronLeft className="h-5 w-5" strokeWidth={1.8} />
+            <span className="text-[11px] font-medium">Salir</span>
+          </button>
+          {tabs.map((tab) => {
+            const Icon = tab.icon
+            const isActive = activeTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex flex-col items-center gap-0.5 px-4 py-1.5 transition-colors duration-200 ${
+                  isActive ? "text-navy-accent" : "text-gray-500 hover:text-gray-300"
+                }`}
+              >
+                <Icon className="h-5 w-5" strokeWidth={isActive ? 2.2 : 1.8} />
+                <span className="text-[11px] font-medium">{tab.label}</span>
+              </button>
+            )
+          })}
+        </div>
+      </nav>
+    </div>
+  )
 }
