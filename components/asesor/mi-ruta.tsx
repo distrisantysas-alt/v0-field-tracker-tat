@@ -745,7 +745,13 @@ interface NuevoClienteProps {
   onExito: () => void
 }
 
+// ============================================================================
+// REEMPLAZA la función NuevoCliente en components/asesor/mi-ruta.tsx
+// Busca: "function NuevoCliente(" y reemplaza todo hasta el último "}" del componente
+// ============================================================================
+
 function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClienteProps) {
+  const [ruta, setRuta]           = useState("")
   const [nombre, setNombre]       = useState("")
   const [direccion, setDireccion] = useState("")
   const [telefono, setTelefono]   = useState("")
@@ -758,8 +764,13 @@ function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClient
     setError("")
     setLoading(true)
     try {
+      // Concatenar ruta al nombre si se ingresó: "75 TIENDA LA ESQUINA"
+      const nombreFinal = ruta.trim()
+        ? `${ruta.trim().toUpperCase()} ${nombre.trim().toUpperCase()}`
+        : nombre.trim().toUpperCase()
+
       const payload = {
-        nombre:    nombre.trim(),
+        nombre:    nombreFinal,
         direccion: direccion.trim() || null,
         telefono:  telefono.trim() || null,
         asesor_id: asesorId,
@@ -796,46 +807,68 @@ function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClient
         <UserPlus className="ml-auto h-5 w-5 text-navy-accent" />
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 pb-32">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-32">
 
-        {/* Campos */}
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Nombre del cliente *</label>
+        {/* Ruta + Nombre en la misma fila */}
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Ruta y nombre del cliente *</label>
+          <div className="flex gap-2">
+            {/* Campo ruta — ancho fijo pequeño */}
+            <input
+              type="text"
+              value={ruta}
+              onChange={e => setRuta(e.target.value.replace(/\D/g, ''))}
+              placeholder="Ruta"
+              maxLength={4}
+              inputMode="numeric"
+              className="w-20 rounded-xl border border-white/10 bg-dark-surface px-3 py-3 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none text-center font-mono"
+            />
+            {/* Campo nombre */}
             <input
               type="text"
               value={nombre}
               onChange={e => { setNombre(e.target.value); setError("") }}
-              placeholder="Ej: Tienda La Esquina"
+              placeholder="Nombre del cliente"
               autoFocus
-              className={`w-full rounded-xl border bg-dark-surface px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 transition-all ${
-                error && !nombre ? "border-danger focus:ring-danger/30" : "border-white/10 focus:border-navy-accent focus:ring-navy-accent/30"
+              className={`flex-1 rounded-xl border bg-dark-surface px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none transition-all ${
+                error && !nombre ? "border-danger" : "border-white/10 focus:border-navy-accent"
               }`}
             />
           </div>
+          {/* Preview del nombre final */}
+          {(ruta || nombre) && (
+            <p className="mt-1.5 px-1 text-xs text-gray-500">
+              Se guardará como:{" "}
+              <span className="text-white font-mono">
+                {ruta ? `${ruta.toUpperCase()} ` : ""}{nombre.toUpperCase()}
+              </span>
+            </p>
+          )}
+        </div>
 
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Dirección</label>
-            <input
-              type="text"
-              value={direccion}
-              onChange={e => setDireccion(e.target.value)}
-              placeholder="Ej: Calle 5 #10-20"
-              className="w-full rounded-xl border border-white/10 bg-dark-surface px-4 py-3 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none"
-            />
-          </div>
+        {/* Dirección */}
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Dirección</label>
+          <input
+            type="text"
+            value={direccion}
+            onChange={e => setDireccion(e.target.value)}
+            placeholder="Ej: Calle 5 #10-20"
+            className="w-full rounded-xl border border-white/10 bg-dark-surface px-4 py-3 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none"
+          />
+        </div>
 
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Teléfono</label>
-            <input
-              type="tel"
-              value={telefono}
-              onChange={e => setTelefono(e.target.value)}
-              placeholder="Ej: 3001234567"
-              inputMode="tel"
-              className="w-full rounded-xl border border-white/10 bg-dark-surface px-4 py-3 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none"
-            />
-          </div>
+        {/* Teléfono */}
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Teléfono</label>
+          <input
+            type="tel"
+            value={telefono}
+            onChange={e => setTelefono(e.target.value)}
+            placeholder="Ej: 3001234567"
+            inputMode="tel"
+            className="w-full rounded-xl border border-white/10 bg-dark-surface px-4 py-3 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none"
+          />
         </div>
 
         {/* GPS */}
@@ -854,9 +887,9 @@ function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClient
               <p className="text-xs text-gray-400">
                 {usarGPS
                   ? userLocation
-                    ? `📍 ${userLocation.lat.toFixed(6)}, ${userLocation.lng.toFixed(6)}`
+                    ? `📍 ${userLocation.lat.toFixed(5)}, ${userLocation.lng.toFixed(5)}`
                     : "Obteniendo GPS..."
-                  : "No se guardará ubicación (se puede agregar después)"
+                  : "Sin ubicación (se puede agregar después)"
                 }
               </p>
             </div>
