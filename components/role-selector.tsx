@@ -1,6 +1,13 @@
 "use client"
 
-import { Briefcase, Users, Building2 } from "lucide-react"
+// ============================================================================
+// components/role-selector.tsx (ACTUALIZADO)
+// - Asesor: visible y con login
+// - Supervisor y Dirección: ocultos por defecto, acceso por código
+// ============================================================================
+
+import { useState } from "react"
+import { Briefcase, Lock } from "lucide-react"
 
 type Role = "asesor" | "supervisor" | "gerencia"
 
@@ -8,83 +15,89 @@ interface RoleSelectorProps {
   onSelectRole: (role: Role) => void
 }
 
-const roles = [
-  {
-    id: "asesor" as Role,
-    title: "Asesor Comercial",
-    description: "Gestiona tus visitas del día en campo",
-    icon: Briefcase,
-    gradient: "from-navy to-navy-accent",
-  },
-  {
-    id: "supervisor" as Role,
-    title: "Supervisor",
-    description: "Monitorea tu equipo en tiempo real",
-    icon: Users,
-    gradient: "from-navy-accent to-[#3B82F6]",
-  },
-  {
-    id: "gerencia" as Role,
-    title: "Dirección / RRHH",
-    description: "Métricas, cumplimiento y nómina",
-    icon: Building2,
-    gradient: "from-[#1A7A4A] to-[#2E9D5E]",
-  },
-]
-
 export function RoleSelector({ onSelectRole }: RoleSelectorProps) {
+  const [showAdmin, setShowAdmin]     = useState(false)
+  const [codigo, setCodigo]           = useState("")
+  const [error, setError]             = useState("")
+  const [tapCount, setTapCount]       = useState(0)
+
+  // Código de acceso para roles administrativos
+  // Toca el título 5 veces para revelar el campo de código
+  const handleTitleTap = () => {
+    const next = tapCount + 1
+    setTapCount(next)
+    if (next >= 5) {
+      setShowAdmin(true)
+      setTapCount(0)
+    }
+  }
+
+  const handleCodigoSubmit = () => {
+    // Códigos de acceso — cámbialos por los que quieras
+    if (codigo === "SUPER2024") {
+      onSelectRole("supervisor")
+    } else if (codigo === "ADMIN2024") {
+      onSelectRole("gerencia")
+    } else {
+      setError("Código incorrecto")
+      setCodigo("")
+    }
+  }
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-dark-bg px-6 py-12">
-      <div className="mb-12 text-center">
-        <h1 className="mb-2 text-3xl font-bold tracking-tight text-white">
-          Field Tracker TAT
-        </h1>
-        <p className="text-sm text-gray-400">
-          Sistema de gestión de visitas en campo
-        </p>
+
+      {/* Logo / Título — toca 5 veces para acceso admin */}
+      <div className="mb-10 text-center" onClick={handleTitleTap}>
+        <h1 className="text-3xl font-bold text-white">Field Tracker TAT</h1>
+        <p className="mt-2 text-sm text-gray-400">Sistema de gestión de visitas en campo</p>
       </div>
 
-      <div className="flex w-full max-w-sm flex-col gap-4">
-        {roles.map((role) => {
-          const Icon = role.icon
-          return (
+      {/* Solo botón de Asesor visible públicamente */}
+      <div className="w-full max-w-sm space-y-3">
+        <button
+          onClick={() => onSelectRole("asesor")}
+          className="flex w-full items-center gap-4 rounded-2xl border border-white/10 bg-dark-surface p-5 text-left transition-all active:scale-[0.97] hover:border-navy-accent/50 hover:bg-navy/30"
+        >
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-navy-accent/20">
+            <Briefcase className="h-6 w-6 text-navy-accent" strokeWidth={1.8} />
+          </div>
+          <div className="flex-1">
+            <p className="font-semibold text-white">Asesor Comercial</p>
+            <p className="text-xs text-gray-400">Gestiona tus visitas del día en campo</p>
+          </div>
+          <span className="text-gray-600">›</span>
+        </button>
+
+        {/* Campo de código admin — solo visible tras 5 taps en el título */}
+        {showAdmin && (
+          <div className="rounded-2xl border border-white/10 bg-dark-surface p-4 space-y-3">
+            <div className="flex items-center gap-2 mb-1">
+              <Lock className="h-4 w-4 text-gray-500" />
+              <p className="text-xs text-gray-400">Acceso administrativo</p>
+            </div>
+            <input
+              type="password"
+              value={codigo}
+              onChange={e => { setCodigo(e.target.value); setError("") }}
+              onKeyDown={e => e.key === "Enter" && handleCodigoSubmit()}
+              placeholder="Código de acceso"
+              autoFocus
+              className="w-full rounded-xl border border-white/10 bg-dark-bg px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:border-navy-accent focus:outline-none"
+            />
+            {error && <p className="text-xs text-danger">{error}</p>}
             <button
-              key={role.id}
-              onClick={() => onSelectRole(role.id)}
-              className="group relative flex items-center gap-5 overflow-hidden rounded-xl border border-white/10 bg-dark-surface p-5 text-left transition-all duration-200 hover:border-navy-accent/50 hover:shadow-[0_0_24px_rgba(46,109,164,0.15)] active:scale-[0.97]"
+              onClick={handleCodigoSubmit}
+              disabled={!codigo}
+              className="w-full rounded-xl bg-navy-accent py-2.5 text-sm font-semibold text-white disabled:opacity-40 transition-all active:scale-[0.97]"
             >
-              <div
-                className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${role.gradient}`}
-              >
-                <Icon className="h-7 w-7 text-white" strokeWidth={1.8} />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-lg font-semibold text-white">
-                  {role.title}
-                </span>
-                <span className="text-sm text-gray-400">
-                  {role.description}
-                </span>
-              </div>
-              <div className="ml-auto text-gray-500 transition-transform duration-200 group-hover:translate-x-1 group-hover:text-white">
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                  <path
-                    d="M7.5 5L12.5 10L7.5 15"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </div>
+              Ingresar
             </button>
-          )
-        })}
+          </div>
+        )}
       </div>
 
-      <p className="mt-12 text-xs text-gray-600">
-        v1.0 — Selecciona tu rol para continuar
-      </p>
+      <p className="mt-8 text-xs text-gray-600">v1.0 — Selecciona tu rol para continuar</p>
     </div>
   )
 }
