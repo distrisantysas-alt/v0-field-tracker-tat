@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sin conexión — Field Tracker TAT</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      background: #0a0f1e;
+      color: white;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      text-align: center;
+    }
+    .icon {
+      width: 64px;
+      height: 64px;
+      background: rgba(245, 158, 11, 0.15);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 1.5rem;
+      font-size: 2rem;
+    }
+    h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.75rem; }
+    p  { font-size: 0.875rem; color: #6b7280; line-height: 1.6; margin-bottom: 2rem; }
+    button {
+      background: #1a2744;
+      color: white;
+      border: 1px solid rgba(255,255,255,0.1);
+      padding: 0.875rem 2rem;
+      border-radius: 0.75rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      max-width: 280px;
+    }
+    button:active { transform: scale(0.97); }
+  </style>
+</head>
+<body>
+  <div class="icon">📡</div>
+  <h1>Sin conexión</h1>
+  <p>
+    No hay internet disponible.<br />
+    Si ya iniciaste sesión antes, vuelve a la app —<br />
+    tus clientes siguen disponibles en caché.
+  </p>
+  <button onclick="window.location.href='/'">Volver a la app</button>
+</body>
+</html>
