@@ -1,323 +1,328 @@
 "use client"
 
-import { useState, useEffect } from "react"
+// ============================================================================
+// components/asesor/mapa-tab.tsx — MAPA REAL + NAVEGACIÓN GPS
+// ✅ Mapa real con calles OpenStreetMap (sin API key)
+// ✅ ASESOR_ID dinámico desde props
+// ✅ Pin azul pulsante = ubicación del asesor
+// ✅ Pins coloreados según estado de visita
+// ✅ Click en pin → tarjeta con botones "Cómo llegar"
+// ✅ Abre Google Maps o Waze con navegación completa
+// ============================================================================
+
+import { useEffect, useRef, useState } from "react"
 import useSWR from "swr"
-import { MapPin, Loader2 } from "lucide-react"
+import { Loader2, MapPin, Navigation, X, Check, AlertTriangle } from "lucide-react"
+import { type AsesorSession } from "./login-asesor"
 
-type PinStatus = "validada" | "sospechosa" | "en-progreso" | "pendiente" | "omitida"
+const fetcher = (url: string) => fetch(url).then(r => r.json())
 
-interface Cliente {
+function fechaColombia() {
+  return new Date().toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
+}
+
+interface MapaTabProps {
+  asesor: AsesorSession
+}
+
+interface ClienteMap {
   id: string
-  codigo: string
   nombre: string
   direccion: string
-  lat: number
-  lng: number
+  lat: number | null
+  lng: number | null
   visitado_en: string | null
   validada: boolean | null
   distancia_metros: number | null
 }
 
-interface MapPin2 {
-  x: number
-  y: number
-  label: string
-  status: PinStatus
-  distance?: string
-  cliente: Cliente
+// Abre Google Maps con navegación paso a paso
+function abrirGoogleMaps(lat: number, lng: number) {
+  const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`
+  window.open(url, '_blank')
 }
 
-const pinColors: Record<PinStatus, string> = {
-  validada: "#1A7A4A",
-  sospechosa: "#D97706",
-  "en-progreso": "#2E6DA4",
-  pendiente: "#6B7280",
-  omitida: "#DC2626",
+// Abre Waze con navegación
+function abrirWaze(lat: number, lng: number) {
+  const url = `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`
+  window.open(url, '_blank')
 }
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
-
-export function MapaTab() {
-  const ASESOR_ID = "0a2da93b-5e18-4b2d-882c-d40f8e84b374"
-  const fecha = new Date().toLocaleString('en-CA', { 
-    timeZone: 'America/Bogota' 
-  }).split(',')[0]
-
+export function MapaTab({ asesor }: MapaTabProps) {
+  const mapRef        = useRef<HTMLDivElement>(null)
+  const leafletRef    = useRef<any>(null)
+  const markersRef    = useRef<any[]>([])
+  const userMarkerRef = useRef<any>(null)
+  const [mapReady, setMapReady]         = useState(false)
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
-  const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null)
+  const [clienteSel, setClienteSel]     = useState<ClienteMap | null>(null)
+  const [mapError, setMapError]         = useState("")
 
-  // Fetch clientes del día
-  const { data, error } = useSWR(
-    `/api/clientes-del-dia?asesor_id=${ASESOR_ID}&fecha=${fecha}`,
+  const fecha = fechaColombia()
+
+  const { data, isLoading } = useSWR(
+    `/api/clientes-del-dia?asesor_id=${asesor.id}&fecha=${fecha}`,
     fetcher,
     { refreshInterval: 30000 }
   )
 
-  // Obtener ubicación GPS del usuario
+  // ── Cargar Leaflet dinámicamente ─────────────────────────────────────────
   useEffect(() => {
-    const updateLocation = async () => {
-      try {
-        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
-            enableHighAccuracy: true,
-            timeout: 30000,
-            maximumAge: 10000
-          })
-        })
+    if (typeof window === "undefined") return
+    if (leafletRef.current) return
 
-        setUserLocation({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude
-        })
-      } catch (error) {
-        console.error('Error obteniendo GPS:', error)
-      }
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link')
+      link.id   = 'leaflet-css'
+      link.rel  = 'stylesheet'
+      link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'
+      document.head.appendChild(link)
     }
 
-    updateLocation()
-    const interval = setInterval(updateLocation, 10000)
-    return () => clearInterval(interval)
+    const script = document.createElement('script')
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'
+    script.onload = () => {
+      leafletRef.current = (window as any).L
+      setMapReady(true)
+    }
+    script.onerror = () => setMapError("Error cargando el mapa. Verifica tu conexión.")
+    document.head.appendChild(script)
   }, [])
 
-  // Seleccionar cliente más cercano pendiente
+  // ── Inicializar mapa ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (!data?.clientes || !userLocation) return
+    if (!mapReady || !mapRef.current || !leafletRef.current) return
+    if ((mapRef.current as any)._leaflet_id) return
 
-    const pendientes = data.clientes.filter((c: Cliente) => !c.visitado_en)
-    if (pendientes.length === 0) {
-      setSelectedCliente(null)
-      return
-    }
-
-    // Calcular distancias
-    const conDistancia = pendientes.map((c: Cliente) => {
-      const R = 6371000
-      const toRad = (deg: number) => (deg * Math.PI) / 180
-      const dLat = toRad(c.lat - userLocation.lat)
-      const dLng = toRad(c.lng - userLocation.lng)
-      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(toRad(userLocation.lat)) * Math.cos(toRad(c.lat)) *
-                Math.sin(dLng/2) * Math.sin(dLng/2)
-      const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
-      return { ...c, distancia_calculada: dist }
+    const L = leafletRef.current
+    const map = L.map(mapRef.current, {
+      center: [7.119, -73.1227], // Bucaramanga
+      zoom: 13,
+      zoomControl: true,
     })
 
-    conDistancia.sort((a, b) => a.distancia_calculada - b.distancia_calculada)
-    setSelectedCliente(conDistancia[0])
-  }, [data, userLocation])
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap',
+      maxZoom: 19,
+    }).addTo(map)
 
-  const handleCheckIn = () => {
-    // Navegar a la pestaña Mi Ruta para hacer check-in
-    const miRutaTab = document.querySelector('[href="#mi-ruta"]') as HTMLElement
-    if (miRutaTab) miRutaTab.click()
-  }
+    ;(mapRef.current as any)._mapInstance = map
+  }, [mapReady])
 
-  if (error) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-red-500">Error cargando mapa</p>
-      </div>
-    )
-  }
-
-  if (!data) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-navy-accent" />
-      </div>
-    )
-  }
-
-  const { clientes, stats } = data
-
-  // Calcular bounds del mapa
-  const bounds = clientes.reduce(
-    (acc: any, c: Cliente) => ({
-      minLat: Math.min(acc.minLat, c.lat),
-      maxLat: Math.max(acc.maxLat, c.lat),
-      minLng: Math.min(acc.minLng, c.lng),
-      maxLng: Math.max(acc.maxLng, c.lng)
-    }),
-    { minLat: Infinity, maxLat: -Infinity, minLng: Infinity, maxLng: -Infinity }
-  )
-
-  // Incluir ubicación del usuario en bounds
-  if (userLocation) {
-    bounds.minLat = Math.min(bounds.minLat, userLocation.lat)
-    bounds.maxLat = Math.max(bounds.maxLat, userLocation.lat)
-    bounds.minLng = Math.min(bounds.minLng, userLocation.lng)
-    bounds.maxLng = Math.max(bounds.maxLng, userLocation.lng)
-  }
-
-  // Convertir coordenadas GPS a posición % en el mapa
-  const latToY = (lat: number) => {
-    const range = bounds.maxLat - bounds.minLat || 0.01
-    return ((bounds.maxLat - lat) / range) * 100
-  }
-
-  const lngToX = (lng: number) => {
-    const range = bounds.maxLng - bounds.minLng || 0.01
-    return ((lng - bounds.minLng) / range) * 100
-  }
-
-  // Convertir clientes a pins con posiciones reales
-  const pins: MapPin2[] = clientes.map((c: Cliente) => {
-    let status: PinStatus = "pendiente"
-    if (c.visitado_en) {
-      status = c.validada ? "validada" : "sospechosa"
-    } else if (selectedCliente?.id === c.id) {
-      status = "en-progreso"
+  // ── GPS del asesor ────────────────────────────────────────────────────────
+  useEffect(() => {
+    const update = () => {
+      navigator.geolocation?.getCurrentPosition(
+        pos => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => {},
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+      )
     }
+    update()
+    const t = setInterval(update, 10000)
+    return () => clearInterval(t)
+  }, [])
 
-    return {
-      x: lngToX(c.lng),
-      y: latToY(c.lat),
-      label: c.nombre,
-      status,
-      cliente: c,
-      distance: c.distancia_metros 
-        ? c.distancia_metros < 1000
-          ? `~${Math.round(c.distancia_metros)}m`
-          : `~${(c.distancia_metros / 1000).toFixed(1)}km`
-        : undefined
+  // ── Pin del asesor (azul pulsante) ────────────────────────────────────────
+  useEffect(() => {
+    if (!mapReady || !userLocation) return
+    const map = (mapRef.current as any)?._mapInstance
+    const L   = leafletRef.current
+    if (!map || !L) return
+
+    const userIcon = L.divIcon({
+      className: '',
+      html: `
+        <div style="position:relative;width:20px;height:20px">
+          <div style="position:absolute;inset:0;border-radius:50%;background:rgba(46,109,164,0.3);animation:ping 1.5s infinite"></div>
+          <div style="position:absolute;inset:3px;border-radius:50%;background:#2E6DA4;border:2px solid white;box-shadow:0 0 8px rgba(46,109,164,0.8)"></div>
+        </div>
+        <style>@keyframes ping{0%,100%{transform:scale(1);opacity:0.7}50%{transform:scale(1.8);opacity:0}}</style>
+      `,
+      iconSize:   [20, 20],
+      iconAnchor: [10, 10],
+    })
+
+    if (userMarkerRef.current) {
+      userMarkerRef.current.setLatLng([userLocation.lat, userLocation.lng])
+    } else {
+      userMarkerRef.current = L.marker([userLocation.lat, userLocation.lng], { icon: userIcon })
+        .addTo(map)
+        .bindPopup('<b>📍 Tu ubicación</b>')
+      map.setView([userLocation.lat, userLocation.lng], 14)
     }
-  })
+  }, [mapReady, userLocation])
 
-  // Posición del usuario en el mapa
-  const userPos = userLocation
-    ? { x: lngToX(userLocation.lng), y: latToY(userLocation.lat) }
-    : null
+  // ── Pins de clientes ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!mapReady || !data?.clientes) return
+    const map = (mapRef.current as any)?._mapInstance
+    const L   = leafletRef.current
+    if (!map || !L) return
+
+    markersRef.current.forEach(m => map.removeLayer(m))
+    markersRef.current = []
+
+    const clientes: ClienteMap[] = data.clientes.filter((c: ClienteMap) => c.lat && c.lng)
+
+    clientes.forEach((c: ClienteMap) => {
+      let color = '#6B7280'
+      let emoji = '⏳'
+      if (c.visitado_en && c.validada === true)  { color = '#1A7A4A'; emoji = '✅' }
+      if (c.visitado_en && c.validada === false) { color = '#D97706'; emoji = '⚠️' }
+
+      const icon = L.divIcon({
+        className: '',
+        html: `
+          <div style="
+            background:${color};border:2px solid white;
+            border-radius:50% 50% 50% 0;width:28px;height:28px;
+            transform:rotate(-45deg);box-shadow:0 2px 6px rgba(0,0,0,0.4);
+            display:flex;align-items:center;justify-content:center;
+          ">
+            <span style="transform:rotate(45deg);font-size:12px">${emoji}</span>
+          </div>
+        `,
+        iconSize:    [28, 28],
+        iconAnchor:  [14, 28],
+        popupAnchor: [0, -28],
+      })
+
+      const marker = L.marker([c.lat!, c.lng!], { icon })
+        .addTo(map)
+        .on('click', () => setClienteSel(c))
+
+      markersRef.current.push(marker)
+    })
+
+    if (clientes.length > 0 && !userLocation) {
+      const group = L.featureGroup(markersRef.current)
+      map.fitBounds(group.getBounds().pad(0.15))
+    }
+  }, [mapReady, data])
+
+  const stats  = data?.stats    ?? { total: 0, validadas: 0, sospechosas: 0, pendientes: 0 }
+  const sinGPS = (data?.clientes ?? []).filter((c: ClienteMap) => !c.lat || !c.lng).length
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="px-4 pb-2 pt-4">
-        <h2 className="text-lg font-bold text-white">Mapa de Ruta</h2>
-        <p className="text-xs text-gray-400">{stats.total} puntos de visita asignados</p>
-      </div>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 140px)' }}>
 
-      {/* Map */}
-      <div className="relative mx-4 flex-1 overflow-hidden rounded-xl border border-white/10 bg-[#0C1520]" style={{ minHeight: "460px" }}>
-        {/* Grid pattern */}
-        <div
-          className="absolute inset-0 opacity-20"
-          style={{
-            backgroundImage: `
-              linear-gradient(rgba(46,109,164,0.3) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(46,109,164,0.3) 1px, transparent 1px)
-            `,
-            backgroundSize: "40px 40px",
-          }}
-        />
-
-        {/* Street-like lines */}
-        <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-          {/* Horizontal streets */}
-          <line x1="0" y1="30" x2="100" y2="30" stroke="rgba(46,109,164,0.2)" strokeWidth="0.5" />
-          <line x1="0" y1="50" x2="100" y2="50" stroke="rgba(46,109,164,0.25)" strokeWidth="0.7" />
-          <line x1="0" y1="70" x2="100" y2="70" stroke="rgba(46,109,164,0.2)" strokeWidth="0.5" />
-
-          {/* Vertical streets */}
-          <line x1="25" y1="0" x2="25" y2="100" stroke="rgba(46,109,164,0.2)" strokeWidth="0.5" />
-          <line x1="50" y1="0" x2="50" y2="100" stroke="rgba(46,109,164,0.25)" strokeWidth="0.7" />
-          <line x1="75" y1="0" x2="75" y2="100" stroke="rgba(46,109,164,0.2)" strokeWidth="0.5" />
-
-          {/* Route connecting pending pins */}
-          <polyline
-            points={pins
-              .filter(p => p.status === "pendiente" || p.status === "en-progreso")
-              .map((p) => `${p.x},${p.y}`)
-              .join(" ")}
-            fill="none"
-            stroke="rgba(255,255,255,0.15)"
-            strokeWidth="0.4"
-            strokeDasharray="2,1.5"
-          />
-        </svg>
-
-        {/* User position (pulsing blue dot) */}
-        {userPos && (
-          <div
-            className="absolute z-20 flex items-center justify-center"
-            style={{
-              left: `${userPos.x}%`,
-              top: `${userPos.y}%`,
-              transform: "translate(-50%, -50%)",
-            }}
-          >
-            <div className="h-4 w-4 rounded-full border-2 border-white bg-navy-accent shadow-[0_0_12px_rgba(46,109,164,0.6)]">
-              <div className="absolute inset-0 animate-ping rounded-full bg-navy-accent/40" />
-            </div>
+      {/* Stats rápidas */}
+      <div className="flex items-center gap-3 border-b border-white/10 bg-dark-surface px-4 py-2">
+        <div className="flex items-center gap-1.5">
+          <div className="h-2.5 w-2.5 rounded-full bg-success" />
+          <span className="text-xs text-gray-400">{stats.validadas} ok</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="h-2.5 w-2.5 rounded-full bg-warning" />
+          <span className="text-xs text-gray-400">{stats.sospechosas} sospechosas</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="h-2.5 w-2.5 rounded-full bg-gray-500" />
+          <span className="text-xs text-gray-400">{stats.pendientes} pendientes</span>
+        </div>
+        {sinGPS > 0 && (
+          <div className="ml-auto flex items-center gap-1">
+            <MapPin className="h-3 w-3 text-warning" />
+            <span className="text-[10px] text-warning">{sinGPS} sin GPS</span>
           </div>
         )}
-
-        {/* Pin markers */}
-        {pins.map((pin, i) => (
-          <div
-            key={i}
-            className="group absolute z-10 cursor-pointer"
-            style={{
-              left: `${pin.x}%`,
-              top: `${pin.y}%`,
-              transform: "translate(-50%, -100%)",
-            }}
-            onClick={() => setSelectedCliente(pin.cliente)}
-          >
-            <div className="relative">
-              <MapPin
-                className="h-6 w-6 drop-shadow-lg"
-                fill={pinColors[pin.status]}
-                color={pinColors[pin.status]}
-                strokeWidth={1}
-              />
-              {/* Tooltip on hover */}
-              <div className="pointer-events-none absolute bottom-full left-1/2 mb-1 -translate-x-1/2 whitespace-nowrap rounded-lg bg-dark-surface px-2 py-1 text-[10px] text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                {pin.label}
-              </div>
-            </div>
-          </div>
-        ))}
-
-        {/* Legend */}
-        <div className="absolute left-3 top-3 z-30 flex flex-col gap-1 rounded-lg bg-dark-bg/90 p-2.5 backdrop-blur-sm">
-          {[
-            { color: "bg-success", label: `Validada (${stats.validadas})` },
-            { color: "bg-warning", label: `Sospechosa (${stats.sospechosas})` },
-            { color: "bg-navy-accent", label: "En Progreso" },
-            { color: "bg-gray-500", label: `Pendiente (${stats.pendientes})` },
-          ].map((item) => (
-            <div key={item.label} className="flex items-center gap-1.5">
-              <div className={`h-2 w-2 rounded-full ${item.color}`} />
-              <span className="text-[9px] text-gray-400">{item.label}</span>
-            </div>
-          ))}
-        </div>
       </div>
 
-      {/* Bottom floating card - Cliente seleccionado */}
-      {selectedCliente && (
-        <div className="mx-4 mb-4 mt-3 flex items-center gap-3 rounded-xl border border-white/10 bg-dark-surface p-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-navy-accent/20">
-            <MapPin className="h-5 w-5 text-navy-accent" />
+      {/* Mapa */}
+      <div className="relative flex-1">
+        {(isLoading || !mapReady) && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-dark-bg gap-3">
+            <Loader2 className="h-8 w-8 animate-spin text-navy-accent" />
+            <p className="text-xs text-gray-400">Cargando mapa...</p>
           </div>
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-white">{selectedCliente.nombre}</p>
-            <p className="font-mono text-xs text-gray-400">
-              {selectedCliente.distancia_metros 
-                ? selectedCliente.distancia_metros < 1000
-                  ? `${Math.round(selectedCliente.distancia_metros)}m de distancia`
-                  : `${(selectedCliente.distancia_metros / 1000).toFixed(1)}km de distancia`
-                : userLocation ? 'Calculando...' : 'Activando GPS...'
+        )}
+        {mapError && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-dark-bg gap-3 px-8 text-center">
+            <AlertTriangle className="h-10 w-10 text-warning" />
+            <p className="text-sm text-gray-300">{mapError}</p>
+          </div>
+        )}
+        <div ref={mapRef} className="h-full w-full" />
+      </div>
+
+      {/* ── Tarjeta del cliente seleccionado ── */}
+      {clienteSel && (
+        <div className="absolute bottom-20 left-3 right-3 z-[1000] rounded-2xl border border-white/10 bg-dark-surface/97 backdrop-blur-md shadow-2xl overflow-hidden">
+
+          {/* Cabecera */}
+          <div className="flex items-start gap-3 p-4">
+            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+              clienteSel.visitado_en && clienteSel.validada ? 'bg-success/20' :
+              clienteSel.visitado_en ? 'bg-warning/20' : 'bg-gray-500/20'
+            }`}>
+              {clienteSel.visitado_en && clienteSel.validada
+                ? <Check className="h-5 w-5 text-success" />
+                : clienteSel.visitado_en
+                ? <AlertTriangle className="h-5 w-5 text-warning" />
+                : <MapPin className="h-5 w-5 text-gray-400" />
               }
-            </p>
-          </div>
-          {!selectedCliente.visitado_en && (
-            <button 
-              onClick={handleCheckIn}
-              className="rounded-lg bg-success px-4 py-2 text-xs font-bold text-white shadow-lg shadow-success/20 transition-all active:scale-95"
-            >
-              CHECK-IN
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-white truncate">{clienteSel.nombre}</p>
+              <p className="text-xs text-gray-400 truncate">{clienteSel.direccion}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                  clienteSel.visitado_en && clienteSel.validada ? 'bg-success/20 text-success' :
+                  clienteSel.visitado_en ? 'bg-warning/20 text-warning' :
+                  'bg-gray-500/20 text-gray-400'
+                }`}>
+                  {clienteSel.visitado_en && clienteSel.validada ? 'VISITADA ✓' :
+                   clienteSel.visitado_en ? 'SOSPECHOSA' : 'PENDIENTE'}
+                </span>
+                {clienteSel.distancia_metros != null && (
+                  <span className="text-[10px] font-mono text-gray-500">
+                    {clienteSel.distancia_metros < 1000
+                      ? `${Math.round(clienteSel.distancia_metros)}m`
+                      : `${(clienteSel.distancia_metros / 1000).toFixed(1)}km`}
+                  </span>
+                )}
+              </div>
+            </div>
+            <button onClick={() => setClienteSel(null)} className="shrink-0 p-1 text-gray-500 hover:text-white">
+              <X className="h-4 w-4" />
             </button>
+          </div>
+
+          {/* Botones de navegación — solo si tiene coordenadas */}
+          {clienteSel.lat && clienteSel.lng && (
+            <div className="grid grid-cols-2 gap-0 border-t border-white/10">
+
+              {/* Google Maps */}
+              <button
+                onClick={() => abrirGoogleMaps(clienteSel.lat!, clienteSel.lng!)}
+                className="flex items-center justify-center gap-2 py-3.5 text-sm font-semibold text-white bg-[#4285F4]/20 hover:bg-[#4285F4]/30 active:bg-[#4285F4]/40 transition-colors border-r border-white/10"
+              >
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+                  <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                </svg>
+                Google Maps
+              </button>
+
+              {/* Waze */}
+              <button
+                onClick={() => abrirWaze(clienteSel.lat!, clienteSel.lng!)}
+                className="flex items-center justify-center gap-2 py-3.5 text-sm font-semibold text-white bg-[#33CCFF]/10 hover:bg-[#33CCFF]/20 active:bg-[#33CCFF]/30 transition-colors"
+              >
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="#33CCFF">
+                  <path d="M12 1.5C6.2 1.5 1.5 6.2 1.5 12S6.2 22.5 12 22.5 22.5 17.8 22.5 12 17.8 1.5 12 1.5zm0 4c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm4 9.5c-.8 1.5-2.3 2.5-4 2.5s-3.2-1-4-2.5h8z"/>
+                </svg>
+                Waze
+              </button>
+            </div>
+          )}
+
+          {/* Si no tiene GPS registrado */}
+          {(!clienteSel.lat || !clienteSel.lng) && (
+            <div className="border-t border-white/10 px-4 py-3 text-center">
+              <p className="text-xs text-warning">⚠️ Este cliente no tiene coordenadas GPS registradas</p>
+              <p className="text-[10px] text-gray-500 mt-0.5">Ve a Mi Ruta → capturar GPS para registrarlas</p>
+            </div>
           )}
         </div>
       )}
