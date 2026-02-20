@@ -1,260 +1,175 @@
 // ============================================================================
 // app/api/admin/import-csv/route.ts
 // ============================================================================
-// Endpoint para importar clientes masivamente desde CSV
-// Sin dependencias externas - parsing nativo
-// ============================================================================
 
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 
-/**
- * Limpiar email
- */
 function limpiarEmail(email: string | null): string | null {
   if (!email) return null;
-  return String(email)
-    .toLowerCase()
-    .replace(/\\n/g, '')
-    .replace(/\n/g, '')
-    .trim();
+  return String(email).toLowerCase().replace(/\\n/g, '').replace(/\n/g, '').trim();
 }
 
-/**
- * Parsear coordenadas "7.087582, -73.166427"
- */
 function parsearCoordenadas(ubicacion: string | null): { lat: number; lng: number } | null {
   if (!ubicacion || ubicacion === 'NaN' || !ubicacion.trim()) return null;
-  
   const coords = String(ubicacion).split(',').map(s => s.trim());
   if (coords.length !== 2) return null;
-  
   const lat = parseFloat(coords[0]);
   const lng = parseFloat(coords[1]);
-  
   if (isNaN(lat) || isNaN(lng)) return null;
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
-  
   return { lat, lng };
 }
 
-/**
- * Parsear CSV a array de objetos
- * Maneja punto y coma (;) como delimitador
- */
 function parseCSV(text: string): any[] {
   const lines = text.split('\n');
   if (lines.length < 3) return [];
-  
-  // Saltar primeras 2 filas decorativas, headers en fila 3
+
   const headerLine = lines[2];
   const headers = headerLine.split(';').map(h => {
-    // Limpiar headers y normalizar
     let clean = h.trim().replace(/"/g, '');
-    // Manejar caracteres especiales en UBICACIÓN
-    if (clean.includes('UBICACI')) {
-      clean = 'UBICACIÓN';
-    }
+    if (clean.includes('UBICACI')) clean = 'UBICACIÓN';
     return clean;
   });
-  
+
   const data = [];
-  
+
   for (let i = 3; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
-    
-    // Split por punto y coma
+
     const values = line.split(';').map(v => {
-      let clean = v.trim().replace(/^"|"$/g, ''); // Quitar comillas de inicio/fin
-      // Limpiar saltos de línea internos
+      let clean = v.trim().replace(/^"|"$/g, '');
       clean = clean.replace(/\n/g, '').replace(/\\n/g, '');
       return clean || null;
     });
-    
-    if (values.length < headers.length - 2) continue; // Permitir algunas columnas faltantes
-    
+
+    if (values.length < headers.length - 2) continue;
+
     const row: any = {};
     headers.forEach((header, index) => {
       row[header] = values[index] || null;
     });
-    
+
     data.push(row);
   }
-  
+
   return data;
 }
 
-/**
- * POST - Importar CSV
- */
 export async function POST(req: NextRequest) {
   try {
-    console.log('📤 Iniciando importación desde CSV...');
+    const body = await req.json();
+    const { action, csvText, offset = 0 } = body;
 
-    const formData = await req.formData();
-    const file = formData.get('file') as File;
-    
-    if (!file) {
-      return NextResponse.json(
-        { error: 'No se recibió archivo' },
-        { status: 400 }
-      );
+    // ── ACCIÓN: parse ──────────────────────────────────────────────
+    if (action === 'parse') {
+      const jsonData = parseCSV(csvText);
+      return NextResponse.json({
+        success: true,
+        action: 'parsed',
+        total: jsonData.length,
+        message: `CSV parseado: ${jsonData.length} filas encontradas`
+      });
     }
 
-    if (!file.name.endsWith('.csv')) {
-      return NextResponse.json(
-        { error: 'El archivo debe ser CSV (.csv)' },
-        { status: 400 }
-      );
-    }
+    // ── ACCIÓN: import-batch ───────────────────────────────────────
+    if (action === 'import-batch') {
+      const BATCH_SIZE = 500;
+      const jsonData = parseCSV(csvText);
+      const batchData = jsonData.slice(offset, offset + BATCH_SIZE);
 
-    const text = await file.text();
-    const jsonData = parseCSV(text);
+      // Asesores únicos en este lote
+      const asesoresMap = new Map<string, string>();
+      const asesoresUnicos: Array<{ email: string; nombre: string }> = [];
 
-    console.log(`📊 Encontradas ${jsonData.length} filas en CSV`);
-
-    if (jsonData.length === 0) {
-      return NextResponse.json(
-        { error: 'El CSV está vacío o tiene formato incorrecto' },
-        { status: 400 }
-      );
-    }
-
-    // Extraer asesores únicos
-    const asesoresMap = new Map<string, string>();
-    const asesoresUnicos: Array<{ email: string; nombre: string }> = [];
-
-    for (const row of jsonData) {
-      const email = limpiarEmail(row.USUARIO);
-      const nombre = row.ASESOR;
-      
-      if (email && !asesoresMap.has(email)) {
-        asesoresMap.set(email, 'pending');
-        asesoresUnicos.push({
-          email,
-          nombre: nombre || email.split('@')[0]
-        });
-      }
-    }
-
-    console.log(`👥 ${asesoresUnicos.length} asesores únicos encontrados`);
-
-    // Importar asesores
-    let asesoresCreados = 0;
-    for (const asesor of asesoresUnicos) {
-      try {
-        const result = await sql`
-          INSERT INTO asesores (nombre, email, zona, rol, activo)
-          VALUES (
-            ${asesor.nombre},
-            ${asesor.email},
-            'Colombia',
-            'asesor',
-            true
-          )
-          ON CONFLICT (email) DO UPDATE
-          SET nombre = EXCLUDED.nombre
-          RETURNING id
-        `;
-        
-        asesoresMap.set(asesor.email, result[0].id);
-        asesoresCreados++;
-      } catch (error) {
-        console.error(`Error creando asesor ${asesor.email}:`, error);
-      }
-    }
-
-    console.log(`✅ ${asesoresCreados} asesores procesados`);
-
-    // Importar clientes (SOLO con GPS)
-    let clientesCreados = 0;
-    let clientesOmitidos = 0;
-
-    for (const row of jsonData) {
-      const codigo = row['CODIGO CLIENTE'];
-      const nombre = row.CLIENTE;
-      const email = limpiarEmail(row.USUARIO);
-      const coordenadas = parsearCoordenadas(row['UBICACIÓN']);
-
-      // FILTRO: Solo importar con coordenadas
-      if (!coordenadas) {
-        clientesOmitidos++;
-        continue;
+      for (const row of batchData) {
+        const email = limpiarEmail(row.USUARIO);
+        const nombre = row.ASESOR;
+        if (email && !asesoresMap.has(email)) {
+          const existe = await sql`SELECT id FROM asesores WHERE email = ${email} LIMIT 1`;
+          if (existe.length > 0) {
+            asesoresMap.set(email, existe[0].id);
+          } else {
+            asesoresMap.set(email, 'pending');
+            asesoresUnicos.push({ email, nombre: nombre || email.split('@')[0] });
+          }
+        }
       }
 
-      if (!codigo || !nombre) continue;
-
-      const asesor_id = email ? asesoresMap.get(email) : null;
-
-      try {
-        await sql`
-          INSERT INTO clientes (
-            codigo,
-            nombre,
-            direccion,
-            telefono,
-            lat,
-            lng,
-            asesor_id,
-            radio_metros,
-            activo
-          ) VALUES (
-            ${codigo},
-            ${nombre},
-            ${row.DIRECCION || null},
-            ${row.TELEFONO || null},
-            ${coordenadas.lat},
-            ${coordenadas.lng},
-            ${asesor_id},
-            50,
-            true
-          )
-          ON CONFLICT (codigo) DO UPDATE
-          SET 
-            nombre = EXCLUDED.nombre,
-            direccion = EXCLUDED.direccion,
-            lat = EXCLUDED.lat,
-            lng = EXCLUDED.lng,
-            asesor_id = EXCLUDED.asesor_id
-        `;
-
-        clientesCreados++;
-      } catch (error) {
-        console.error(`Error con cliente ${codigo}:`, error);
+      for (const asesor of asesoresUnicos) {
+        try {
+          const result = await sql`
+            INSERT INTO asesores (nombre, email, zona, rol, activo)
+            VALUES (${asesor.nombre}, ${asesor.email}, 'Colombia', 'asesor', true)
+            ON CONFLICT (email) DO UPDATE SET nombre = EXCLUDED.nombre
+            RETURNING id
+          `;
+          asesoresMap.set(asesor.email, result[0].id);
+        } catch (error) {
+          console.error(`Error creando asesor ${asesor.email}:`, error);
+        }
       }
+
+      let clientesCreados = 0;
+      let clientesOmitidos = 0;
+
+      for (const row of batchData) {
+        const codigo = row['CODIGO CLIENTE'];
+        const nombre = row.CLIENTE;
+        const email = limpiarEmail(row.USUARIO);
+        const coordenadas = parsearCoordenadas(row['UBICACIÓN']);
+
+        if (!coordenadas) { clientesOmitidos++; continue; }
+        if (!codigo || !nombre) continue;
+
+        const asesor_id = email ? asesoresMap.get(email) : null;
+
+        try {
+          await sql`
+            INSERT INTO clientes (codigo, nombre, direccion, telefono, lat, lng, asesor_id, radio_metros, activo)
+            VALUES (${codigo}, ${nombre}, ${row.DIRECCION || null}, ${row.TELEFONO || null},
+              ${coordenadas.lat}, ${coordenadas.lng}, ${asesor_id}, 50, true)
+            ON CONFLICT (codigo) DO UPDATE
+            SET nombre = EXCLUDED.nombre, direccion = EXCLUDED.direccion,
+                lat = EXCLUDED.lat, lng = EXCLUDED.lng, asesor_id = EXCLUDED.asesor_id
+          `;
+          clientesCreados++;
+        } catch (error) {
+          console.error(`Error con cliente ${codigo}:`, error);
+        }
+      }
+
+      const nextOffset = offset + BATCH_SIZE;
+      const hasMore = nextOffset < jsonData.length;
+
+      return NextResponse.json({
+        success: true,
+        action: 'batch-imported',
+        imported: clientesCreados,
+        omitted: clientesOmitidos,
+        offset: nextOffset,
+        hasMore,
+        progress: Math.min(100, Math.round((nextOffset / jsonData.length) * 100)),
+        total: jsonData.length
+      });
     }
 
-    console.log(`✅ Importación completada`);
-
-    return NextResponse.json({
-      success: true,
-      mensaje: 'Importación exitosa',
-      stats: {
-        asesores: asesoresCreados,
-        clientes_importados: clientesCreados,
-        clientes_omitidos: clientesOmitidos,
-        total_procesado: jsonData.length
-      }
-    });
+    return NextResponse.json({ error: 'Acción no válida' }, { status: 400 });
 
   } catch (error) {
     console.error('❌ Error en importación:', error);
-    
     return NextResponse.json(
-      { 
-        error: 'Error procesando archivo',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { error: 'Error procesando archivo', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }
 }
 
 export async function GET() {
-  return NextResponse.json({ 
+  return NextResponse.json({
     endpoint: '/api/admin/import-csv',
     methods: ['POST'],
-    description: 'Importar clientes desde CSV'
+    description: 'Importar clientes desde CSV por lotes'
   });
 }
