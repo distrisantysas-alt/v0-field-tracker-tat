@@ -1,29 +1,22 @@
 "use client"
-
 // ============================================================================
 // components/asesor/asesor-layout.tsx (CORREGIDO)
 // ============================================================================
-
 import { useState, useEffect } from "react"
 import { MapPin, Map, BarChart2, ChevronLeft } from "lucide-react"
 import { MiRuta } from "./mi-ruta"
 import { MapaTab } from "./mapa-tab"
 import { MisStats } from "./mis-stats"
 import { LoginAsesor, clearAsesorSession, type AsesorSession } from "./login-asesor"
-
 const tabs = [
   { id: "ruta", label: "Mi Ruta", icon: MapPin },
   { id: "mapa", label: "Mapa", icon: Map },
   { id: "stats", label: "Mis Stats", icon: BarChart2 },
 ] as const
-
 type TabId = (typeof tabs)[number]["id"]
-
 interface AsesorLayoutProps {
   onBack: () => void
 }
-
-// Lee la sesión directamente desde localStorage (sin importar useAsesorSession)
 function getSessionFromStorage(): AsesorSession | null {
   if (typeof window === "undefined") return null
   try {
@@ -34,30 +27,21 @@ function getSessionFromStorage(): AsesorSession | null {
     return null
   }
 }
-
 export function AsesorLayout({ onBack }: AsesorLayoutProps) {
   const [activeTab, setActiveTab] = useState<TabId>("ruta")
   const [asesor, setAsesor] = useState<AsesorSession | null>(null)
   const [checkingSession, setCheckingSession] = useState(true)
-
   useEffect(() => {
     const session = getSessionFromStorage()
-    if (session) {
-      setAsesor(session)
-    }
+    if (session) setAsesor(session)
     setCheckingSession(false)
   }, [])
-
-  const handleLogin = (asesorData: AsesorSession) => {
-    setAsesor(asesorData)
-  }
-
+  const handleLogin = (asesorData: AsesorSession) => setAsesor(asesorData)
   const handleLogout = () => {
     clearAsesorSession()
     setAsesor(null)
     onBack()
   }
-
   if (checkingSession) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-dark-bg">
@@ -65,19 +49,16 @@ export function AsesorLayout({ onBack }: AsesorLayoutProps) {
       </div>
     )
   }
-
   if (!asesor) {
     return <LoginAsesor onLogin={handleLogin} onBack={onBack} />
   }
-
   return (
     <div className="flex min-h-screen flex-col bg-dark-bg">
       <main className="flex-1 overflow-y-auto pb-20">
-        {activeTab === "ruta" && <MiRuta asesor={asesor} />}
-        {activeTab === "mapa" && <MapaTab />}
+        {activeTab === "ruta"  && <MiRuta  asesor={asesor} />}
+        {activeTab === "mapa"  && <MapaTab asesor={asesor} />}
         {activeTab === "stats" && <MisStats asesor={asesor} />}
       </main>
-
       <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-dark-bg/95 backdrop-blur-md">
         <div className="flex items-center justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           <button
