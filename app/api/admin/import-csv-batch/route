@@ -69,16 +69,12 @@ function parseCSV(text: string): any[] {
   return data;
 }
 
-/**
- * POST - Iniciar importación (parsear CSV y guardar temporalmente)
- */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { action, csvText, offset = 0 } = body;
 
     if (action === 'parse') {
-      // PASO 1: Parsear el CSV
       console.log('📖 Parseando CSV...');
       const jsonData = parseCSV(csvText);
       
@@ -91,13 +87,11 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'import-batch') {
-      // PASO 2: Importar un lote
       const BATCH_SIZE = 500;
       const jsonData = parseCSV(csvText);
       
       console.log(`📤 Importando lote: offset ${offset}, batch ${BATCH_SIZE}`);
       
-      // Extraer asesores únicos del lote actual
       const batchData = jsonData.slice(offset, offset + BATCH_SIZE);
       
       const asesoresMap = new Map<string, string>();
@@ -108,7 +102,6 @@ export async function POST(req: NextRequest) {
         const nombre = row.ASESOR;
         
         if (email && !asesoresMap.has(email)) {
-          // Verificar si ya existe en BD
           const existe = await sql`SELECT id FROM asesores WHERE email = ${email} LIMIT 1`;
           
           if (existe.length > 0) {
@@ -120,7 +113,6 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Crear asesores nuevos
       for (const asesor of asesoresUnicos) {
         try {
           const result = await sql`
@@ -135,7 +127,6 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Importar clientes del lote
       let clientesCreados = 0;
       let clientesOmitidos = 0;
 
