@@ -1,12 +1,23 @@
 "use client"
 
 // ============================================================================
-// components/asesor/mi-ruta.tsx - Vista Principal del Asesor
+// components/asesor/mi-ruta.tsx — COMPLETO
+// Incluye:
+// ✅ Lista con búsqueda y filtro por ruta
+// ✅ Gestión del cliente (visita / pedido / nota)
+// ✅ Cliente sin GPS → captura coordenadas en campo
+// ✅ Cliente nuevo → botón flotante + formulario completo
+// ✅ Sincronía con supervisor en tiempo real
 // ============================================================================
 
 import { useState, useEffect } from "react"
 import useSWR from "swr"
-import { Bell, MapPin, Check, AlertTriangle, Clock, X, Loader2, Wifi, WifiOff, DollarSign } from "lucide-react"
+import {
+  Bell, MapPin, Check, AlertTriangle, Clock, X,
+  Loader2, Wifi, WifiOff, DollarSign, Search,
+  ChevronLeft, ChevronRight, ShoppingBag, Eye,
+  Plus, UserPlus, Navigation
+} from "lucide-react"
 import {
   type ClienteConEstado,
   formatearDistancia,
@@ -18,245 +29,162 @@ import {
 } from "@/lib/db"
 import { type AsesorSession } from "./login-asesor"
 
-type ClientStatus = "validada" | "sospechosa" | "en-progreso" | "pendiente" | "omitida"
+// ── Tipos ──────────────────────────────────────────────────────────────────
+type ClientStatus = "validada" | "sospechosa" | "pendiente"
+type TipoGestion  = "visita" | "pedido" | null
+type Vista        = "lista" | "gestion" | "nuevo-cliente"
 
 const statusConfig: Record<ClientStatus, {
-  color: string
-  barColor: string
-  label: string
-  bgOpacity: string
-  textColor: string
+  barColor: string; bgOpacity: string; textColor: string; label: string
 }> = {
-  validada: {
-    color: "bg-success",
-    barColor: "bg-success",
-    label: "VALIDADA",
-    bgOpacity: "bg-success/15",
-    textColor: "text-success"
-  },
-  sospechosa: {
-    color: "bg-warning",
-    barColor: "bg-warning",
-    label: "SOSPECHOSA",
-    bgOpacity: "bg-warning/15",
-    textColor: "text-warning"
-  },
-  "en-progreso": {
-    color: "bg-navy-accent",
-    barColor: "bg-navy-accent",
-    label: "EN PROGRESO",
-    bgOpacity: "bg-navy-accent/15",
-    textColor: "text-navy-accent"
-  },
-  pendiente: {
-    color: "bg-gray-500",
-    barColor: "bg-gray-500",
-    label: "PENDIENTE",
-    bgOpacity: "bg-gray-500/15",
-    textColor: "text-gray-400"
-  },
-  omitida: {
-    color: "bg-danger",
-    barColor: "bg-danger",
-    label: "OMITIDA",
-    bgOpacity: "bg-danger/15",
-    textColor: "text-danger"
-  },
+  validada:   { barColor: "bg-success",  bgOpacity: "bg-success/15",  textColor: "text-success",  label: "VISITADO"   },
+  sospechosa: { barColor: "bg-warning",  bgOpacity: "bg-warning/15",  textColor: "text-warning",  label: "SOSPECHOSA" },
+  pendiente:  { barColor: "bg-gray-600", bgOpacity: "bg-gray-500/15", textColor: "text-gray-400", label: "PENDIENTE"  },
 }
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+// ── Helpers ────────────────────────────────────────────────────────────────
+const fetcher = (url: string) => fetch(url).then(r => r.json())
 
 function getCurrentTime() {
-  const now = new Date()
-  return now.toLocaleTimeString("es-CO", {
-    timeZone: "America/Bogota",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
+  return new Date().toLocaleTimeString("es-CO", {
+    timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit", second: "2-digit"
   })
 }
-
-function determinarEstadoCliente(cliente: ClienteConEstado): ClientStatus {
-  if (cliente.visitado_en) {
-    return cliente.validada ? "validada" : "sospechosa"
-  }
-  return "pendiente"
+function fechaColombia() {
+  return new Date().toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
+}
+function getInitials(nombre: string) {
+  return nombre.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
+}
+function getRuta(nombre: string): string {
+  if (!nombre) return '—'
+  const match = nombre.match(/^([A-Z0-9]+)\s/)
+  return match ? match[1] : '—'
+}
+function getNombreSinRuta(nombre: string): string {
+  if (!nombre) return ''
+  const partes = nombre.split(' ')
+  return partes.length > 1 ? partes.slice(1).join(' ') : nombre
+}
+function calcularDistancia(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000
+  const toRad = (d: number) => (d * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1)
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2)**2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+function determinarEstado(cliente: ClienteConEstado): ClientStatus {
+  if (!cliente.visitado_en) return "pendiente"
+  return cliente.validada ? "validada" : "sospechosa"
 }
 
-function getInitials(nombre: string): string {
-  return nombre
-    .split(' ')
-    .map((n: string) => n[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase()
-}
+interface MiRutaProps { asesor: AsesorSession }
 
-interface MiRutaProps {
-  asesor: AsesorSession
-}
-
+// ============================================================================
+// COMPONENTE PRINCIPAL
+// ============================================================================
 export function MiRuta({ asesor }: MiRutaProps) {
   const ASESOR_ID = asesor.id
+  const fecha = fechaColombia()
 
-  // Obtener fecha actual en zona horaria Colombia
-  const fecha = new Date().toLocaleString('en-CA', {
-    timeZone: 'America/Bogota'
-  }).split(',')[0]
-
-  const [showNoteField, setShowNoteField] = useState(false)
-  const [currentTime, setCurrentTime] = useState(getCurrentTime())
-  const [isOnline, setIsOnline] = useState(true)
-  const [isCheckinLoading, setIsCheckinLoading] = useState(false)
-  const [selectedCliente, setSelectedCliente] = useState<ClienteConEstado | null>(null)
-  const [nota, setNota] = useState("")
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
-  const [huboPedido, setHuboPedido] = useState(false)
-  const [valorPedido, setValorPedido] = useState("")
-  const [mostrarResumen, setMostrarResumen] = useState(false)
+  const [currentTime, setCurrentTime]     = useState(getCurrentTime())
+  const [isOnline, setIsOnline]           = useState(true)
+  const [userLocation, setUserLocation]   = useState<{ lat: number; lng: number } | null>(null)
+  const [vista, setVista]                 = useState<Vista>("lista")
+  const [clienteActivo, setClienteActivo] = useState<ClienteConEstado | null>(null)
+  const [buscar, setBuscar]               = useState("")
+  const [filtroRuta, setFiltroRuta]       = useState("")
 
   const { data, error, mutate } = useSWR(
     `/api/clientes-del-dia?asesor_id=${ASESOR_ID}&fecha=${fecha}`,
     fetcher,
-    {
-      refreshInterval: 30000,
-      revalidateOnFocus: true,
-    }
+    { refreshInterval: 30000, revalidateOnFocus: true }
   )
-
   const { data: resumenData } = useSWR(
     `/api/resumen-dia?asesor_id=${ASESOR_ID}&fecha=${fecha}`,
     fetcher,
-    {
-      refreshInterval: 30000,
-      revalidateOnFocus: true,
-    }
+    { refreshInterval: 30000 }
   )
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(getCurrentTime())
-    }, 1000)
-    return () => clearInterval(timer)
+    const t = setInterval(() => setCurrentTime(getCurrentTime()), 1000)
+    return () => clearInterval(t)
   }, [])
 
   useEffect(() => {
-    const updateOnlineStatus = () => setIsOnline(navigator.onLine)
-
-    window.addEventListener('online', updateOnlineStatus)
-    window.addEventListener('offline', updateOnlineStatus)
-
+    const update = () => setIsOnline(navigator.onLine)
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
     if (navigator.onLine) {
-      sincronizarVisitasOffline().then(({ sincronizadas, errores }) => {
-        if (sincronizadas > 0) {
-          console.log(`✅ Sincronizadas ${sincronizadas} visitas offline`)
-          mutate()
-        }
-        if (errores > 0) {
-          console.error(`❌ ${errores} visitas no pudieron sincronizarse`)
-        }
-      })
+      sincronizarVisitasOffline().then(({ sincronizadas }) => { if (sincronizadas > 0) mutate() })
     }
-
-    return () => {
-      window.removeEventListener('online', updateOnlineStatus)
-      window.removeEventListener('offline', updateOnlineStatus)
-    }
+    return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update) }
   }, [isOnline, mutate])
 
   useEffect(() => {
-    const updateLocation = async () => {
+    const update = async () => {
       try {
-        const position = await obtenerPosicionGPS()
-        setUserLocation({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        })
-      } catch (error) {
-        console.error('Error obteniendo GPS:', error)
-      }
+        const pos = await obtenerPosicionGPS()
+        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+      } catch {}
     }
-
-    updateLocation()
-    const interval = setInterval(updateLocation, 10000)
-    return () => clearInterval(interval)
+    update()
+    const t = setInterval(update, 10000)
+    return () => clearInterval(t)
   }, [])
 
-  const validarPedido = (): boolean => {
-    if (huboPedido && (!valorPedido || parseFloat(valorPedido) <= 0)) {
-      alert('Si hubo pedido, debes especificar un valor válido')
-      return false
-    }
-    return true
+  const todosClientes: ClienteConEstado[] = data?.clientes ?? []
+  const stats = data?.stats ?? { total: 0, validadas: 0, sospechosas: 0, pendientes: 0 }
+
+  const rutasUnicas = Array.from(
+    new Set(todosClientes.map(c => getRuta(c.nombre)))
+  ).filter(r => r !== '—').sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+
+  const clientesFiltrados = todosClientes.filter(c => {
+    const matchRuta   = filtroRuta ? getRuta(c.nombre) === filtroRuta : true
+    const matchBuscar = buscar
+      ? c.nombre.toLowerCase().includes(buscar.toLowerCase()) ||
+        (c.codigo || '').toLowerCase().includes(buscar.toLowerCase())
+      : true
+    return matchRuta && matchBuscar
+  })
+
+  const visited = stats.validadas + stats.sospechosas
+  const total   = stats.total
+
+  // ── Vistas secundarias ───────────────────────────────────────────────────
+  if (vista === "gestion" && clienteActivo) {
+    return (
+      <GestionCliente
+        cliente={clienteActivo}
+        asesorId={ASESOR_ID}
+        userLocation={userLocation}
+        isOnline={isOnline}
+        onVolver={() => { setVista("lista"); setClienteActivo(null) }}
+        onExito={() => { setVista("lista"); setClienteActivo(null); mutate() }}
+      />
+    )
   }
 
-  const handleCheckin = async () => {
-    if (!selectedCliente || !userLocation) return
-    if (!validarPedido()) return
-
-    setIsCheckinLoading(true)
-
-    try {
-      const visitaData = {
-        asesor_id: ASESOR_ID,
-        cliente_id: selectedCliente.id,
-        lat: userLocation.lat,
-        lng: userLocation.lng,
-        notas: nota || null,
-        hubo_pedido: huboPedido,
-        valor_pedido: huboPedido ? parseFloat(valorPedido) : 0
-      }
-
-      if (hayConexion()) {
-        const response = await fetch('/api/checkin', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(visitaData),
-        })
-
-        if (!response.ok) throw new Error('Error registrando visita')
-
-        const result = await response.json()
-        console.log('✅ Visita registrada:', result.mensajes)
-      } else {
-        await guardarVisitaOffline({
-          offline_id: generarOfflineID(),
-          asesor_id: visitaData.asesor_id,
-          cliente_id: visitaData.cliente_id,
-          lat_capturada: visitaData.lat,
-          lng_capturada: visitaData.lng,
-          notas: visitaData.notas,
-          timestamp: new Date().toISOString(),
-          synced: false,
-        })
-        console.log('💾 Visita guardada offline')
-      }
-
-      setNota("")
-      setHuboPedido(false)
-      setValorPedido("")
-      setShowNoteField(false)
-      setSelectedCliente(null)
-      setMostrarResumen(true)
-
-      mutate()
-    } catch (error) {
-      console.error('Error en check-in:', error)
-      alert('Error al registrar la visita. Intenta nuevamente.')
-    } finally {
-      setIsCheckinLoading(false)
-    }
+  if (vista === "nuevo-cliente") {
+    return (
+      <NuevoCliente
+        asesorId={ASESOR_ID}
+        userLocation={userLocation}
+        onVolver={() => setVista("lista")}
+        onExito={() => { setVista("lista"); mutate() }}
+      />
+    )
   }
 
+  // ── Lista principal ──────────────────────────────────────────────────────
   if (error) {
     return (
       <div className="flex h-screen items-center justify-center px-4">
         <div className="text-center">
           <AlertTriangle className="mx-auto h-12 w-12 text-danger" />
-          <p className="mt-4 text-white">Error cargando datos</p>
-          <button onClick={() => mutate()} className="mt-2 text-sm text-navy-accent hover:underline">
-            Reintentar
-          </button>
+          <p className="mt-4 text-white">Error cargando clientes</p>
+          <button onClick={() => mutate()} className="mt-2 text-sm text-navy-accent hover:underline">Reintentar</button>
         </div>
       </div>
     )
@@ -270,12 +198,9 @@ export function MiRuta({ asesor }: MiRutaProps) {
     )
   }
 
-  const { clientes, stats } = data
-  const total = stats.total
-  const visited = stats.validadas + stats.sospechosas
-
   return (
     <div className="flex flex-col">
+
       {/* Header */}
       <div className="flex items-center justify-between px-4 pb-2 pt-4">
         <div className="flex items-center gap-3">
@@ -284,274 +209,682 @@ export function MiRuta({ asesor }: MiRutaProps) {
           </div>
           <div>
             <p className="text-sm font-semibold text-white">{asesor.nombre}</p>
-            <p className="text-xs text-gray-400">
-              Asesor Comercial{asesor.zona ? ` — ${asesor.zona}` : ''}
-            </p>
+            <p className="text-xs text-gray-400">Asesor Comercial{asesor.zona ? ` — ${asesor.zona}` : ''}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {isOnline ? (
-            <Wifi className="h-4 w-4 text-success" />
-          ) : (
-            <WifiOff className="h-4 w-4 text-warning" />
-          )}
-          <button className="relative flex h-10 w-10 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-white/10 hover:text-white">
+          {isOnline ? <Wifi className="h-4 w-4 text-success" /> : <WifiOff className="h-4 w-4 text-warning" />}
+          <div className="relative flex h-10 w-10 items-center justify-center rounded-xl text-gray-400">
             <Bell className="h-5 w-5" />
-            {stats.sospechosas > 0 && (
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-danger" />
-            )}
-          </button>
+            {stats.sospechosas > 0 && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-danger" />}
+          </div>
         </div>
       </div>
 
-      {/* Progress Hero Card */}
+      {/* Hero progreso */}
       <div className="mx-4 mt-3 overflow-hidden rounded-xl bg-navy p-5">
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.04]"
-          style={{
-            backgroundImage:
-              "linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)",
-            backgroundSize: "24px 24px",
-          }}
-        />
-
-        <div className="relative">
-          <div className="flex items-baseline gap-1">
-            <span className="text-5xl font-bold tracking-tight text-white">{visited}</span>
-            <span className="text-2xl font-medium text-white/50">/ {total}</span>
+        <div className="flex items-baseline gap-1">
+          <span className="text-5xl font-bold tracking-tight text-white">{visited}</span>
+          <span className="text-2xl font-medium text-white/50">/ {total}</span>
+        </div>
+        <p className="mt-0.5 text-sm text-white/60">visitas completadas hoy</p>
+        <div className="relative mt-4 h-3 overflow-hidden rounded-full bg-white/10">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${
+              total === 0 ? 'bg-gray-600' :
+              (visited/total) >= 0.8 ? "bg-success" :
+              (visited/total) >= 0.6 ? "bg-warning" : "bg-danger"
+            }`}
+            style={{ width: `${total > 0 ? Math.round((visited/total)*100) : 0}%` }}
+          />
+        </div>
+        <div className="mt-4 flex items-center gap-4">
+          <div className="flex items-center gap-1.5">
+            <Check className="h-3.5 w-3.5 text-success" />
+            <span className="text-xs font-medium text-success">{stats.validadas} Validadas</span>
           </div>
-          <p className="mt-0.5 text-sm text-white/60">visitas completadas hoy</p>
-
-          <div className="relative mt-4 h-3 overflow-hidden rounded-full bg-white/10">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                (visited / total) * 100 >= 80
-                  ? "bg-success"
-                  : (visited / total) * 100 >= 60
-                  ? "bg-warning"
-                  : "bg-danger"
-              }`}
-              style={{ width: `${total > 0 ? (visited / total) * 100 : 0}%` }}
-            >
-              <div className="absolute inset-0 animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-            </div>
+          <div className="flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+            <span className="text-xs font-medium text-warning">{stats.sospechosas} Sospechosas</span>
           </div>
-
-          <div className="mt-4 flex items-center gap-4">
-            <div className="flex items-center gap-1.5">
-              <Check className="h-3.5 w-3.5 text-success" />
-              <span className="text-xs font-medium text-success">{stats.validadas} Validadas</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <AlertTriangle className="h-3.5 w-3.5 text-warning" />
-              <span className="text-xs font-medium text-warning">{stats.sospechosas} Sospechosas</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5 text-gray-400" />
-              <span className="text-xs font-medium text-gray-400">{stats.pendientes} Pendientes</span>
-            </div>
+          <div className="flex items-center gap-1.5">
+            <Clock className="h-3.5 w-3.5 text-gray-400" />
+            <span className="text-xs font-medium text-gray-400">{stats.pendientes} Pendientes</span>
           </div>
-
-          <div className="mt-3 text-right">
+          <div className="ml-auto">
             <span className="font-mono text-xs text-white/40">{currentTime}</span>
           </div>
         </div>
       </div>
 
-      {/* Resumen del Día */}
-      {resumenData && resumenData.metricas.visitas.total > 0 && (
-        <div className="mx-4 mt-4 overflow-hidden rounded-xl bg-gradient-to-br from-navy-accent/20 to-success/10 border border-navy-accent/30 p-4">
-          <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
-            <DollarSign className="h-4 w-4" />
-            Resumen del Día
-          </h3>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="text-center">
-              <p className="text-xs text-white/60">Pedidos</p>
-              <p className="text-2xl font-bold text-success">
-                {resumenData.metricas.pedidos.efectivos}
-              </p>
-              <p className="text-xs text-white/40">
-                {resumenData.metricas.pedidos.tasa_conversion}
-              </p>
+      {/* Resumen ventas */}
+      {resumenData?.metricas?.pedidos?.efectivos > 0 && (
+        <div className="mx-4 mt-3 rounded-xl bg-navy-accent/20 border border-navy-accent/30 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <DollarSign className="h-4 w-4 text-navy-accent" />
+            <span className="text-sm font-semibold text-white">Ventas del día</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div>
+              <p className="text-xs text-white/50">Pedidos</p>
+              <p className="text-xl font-bold text-success">{resumenData.metricas.pedidos.efectivos}</p>
             </div>
-            <div className="text-center border-l border-r border-white/10">
-              <p className="text-xs text-white/60">Total</p>
-              <p className="text-lg font-bold text-white">
-                {resumenData.metricas.pedidos.total_vendido_formato}
-              </p>
+            <div className="border-x border-white/10">
+              <p className="text-xs text-white/50">Total</p>
+              <p className="text-base font-bold text-white">{resumenData.metricas.pedidos.total_vendido_formato}</p>
             </div>
-            <div className="text-center">
-              <p className="text-xs text-white/60">Promedio</p>
-              <p className="text-lg font-bold text-white">
-                {resumenData.metricas.pedidos.promedio_pedido_formato}
-              </p>
+            <div>
+              <p className="text-xs text-white/50">Promedio</p>
+              <p className="text-base font-bold text-white">{resumenData.metricas.pedidos.promedio_pedido_formato}</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Client List */}
-      <div className="mt-4 flex flex-col gap-2.5 px-4 pb-32">
-        {clientes.map((cliente: ClienteConEstado) => {
-          const status = determinarEstadoCliente(cliente)
-          const config = statusConfig[status]
-          const isSelected = selectedCliente?.id === cliente.id
+      {/* Filtros */}
+      <div className="mx-4 mt-4 space-y-2">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+          <input
+            type="text"
+            value={buscar}
+            onChange={e => setBuscar(e.target.value)}
+            placeholder="Buscar por nombre o código..."
+            className="w-full rounded-xl border border-white/10 bg-dark-surface pl-10 pr-10 py-2.5 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none"
+          />
+          {buscar && (
+            <button onClick={() => setBuscar("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
 
-          let distanciaActual = "---"
-          if (userLocation && !cliente.visitado_en) {
-            const R = 6371000
-            const toRad = (deg: number) => (deg * Math.PI) / 180
-            const dLat = toRad(cliente.lat - userLocation.lat)
-            const dLng = toRad(cliente.lng - userLocation.lng)
-            const a =
-              Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-              Math.cos(toRad(userLocation.lat)) *
-                Math.cos(toRad(cliente.lat)) *
-                Math.sin(dLng / 2) *
-                Math.sin(dLng / 2)
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-            distanciaActual = formatearDistancia(R * c)
-          } else if (cliente.distancia_metros) {
-            distanciaActual = formatearDistancia(cliente.distancia_metros)
-          }
-
-          return (
-            <div
-              key={cliente.id}
-              onClick={() => !cliente.visitado_en && setSelectedCliente(cliente)}
-              className={`flex overflow-hidden rounded-xl border transition-all duration-200 active:scale-[0.98] ${
-                !cliente.visitado_en ? "cursor-pointer" : "cursor-default"
-              } ${
-                isSelected
-                  ? "border-navy-accent bg-navy-accent/10"
-                  : "border-white/5 bg-dark-surface"
+        {rutasUnicas.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            <button
+              onClick={() => setFiltroRuta("")}
+              className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                filtroRuta === "" ? "bg-navy-accent text-white" : "bg-dark-surface text-gray-400 border border-white/10"
               }`}
-            >
-              <div
-                className={`w-1 shrink-0 ${config.barColor} ${
-                  isSelected ? "animate-pulse-dot" : ""
+            >Todas</button>
+            {rutasUnicas.map(r => (
+              <button
+                key={r}
+                onClick={() => setFiltroRuta(filtroRuta === r ? "" : r)}
+                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  filtroRuta === r ? "bg-navy-accent text-white" : "bg-dark-surface text-gray-400 border border-white/10"
                 }`}
-              />
+              >Ruta {r}</button>
+            ))}
+          </div>
+        )}
 
-              <div className="flex flex-1 items-center gap-3 px-3 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-white">{cliente.nombre}</p>
-                  <p className="truncate text-xs text-gray-500">{cliente.direccion}</p>
-                </div>
-                <div className="flex shrink-0 flex-col items-end gap-1">
-                  <span className="font-mono text-[11px] text-gray-400">{distanciaActual}</span>
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${config.bgOpacity} ${config.textColor}`}>
-                    {config.label}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )
-        })}
+        <p className="text-xs text-gray-500 px-1">
+          {clientesFiltrados.length} de {total} clientes
+          {filtroRuta && ` · Ruta ${filtroRuta}`}
+          {buscar && ` · "${buscar}"`}
+        </p>
       </div>
 
-      {/* Check-in FAB */}
-      {selectedCliente && (
-        <div className="fixed inset-x-0 bottom-16 z-40 px-4 pb-3">
-          <button
-            onClick={handleCheckin}
-            disabled={isCheckinLoading || !userLocation}
-            className="flex w-full animate-pulse-glow flex-col items-center justify-center rounded-xl bg-success px-4 py-3.5 text-white shadow-lg shadow-success/25 transition-all active:scale-[0.97] disabled:opacity-50"
-          >
-            <div className="flex items-center gap-2">
-              {isCheckinLoading ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <MapPin className="h-5 w-5" />
-              )}
-              <span className="text-base font-bold">
-                {isCheckinLoading ? "REGISTRANDO..." : "REGISTRAR VISITA"}
-              </span>
+      {/* Lista de clientes */}
+      <div className="mt-3 flex flex-col gap-2 px-4 pb-40">
+        {clientesFiltrados.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <Search className="h-10 w-10 text-gray-600 mb-3" />
+            <p className="text-gray-400 text-sm">No se encontraron clientes</p>
+            <button
+              onClick={() => { setBuscar(""); setFiltroRuta("") }}
+              className="mt-2 text-xs text-navy-accent hover:underline"
+            >Limpiar filtros</button>
+          </div>
+        ) : (
+          clientesFiltrados.map((cliente: ClienteConEstado) => {
+            const estado    = determinarEstado(cliente)
+            const config    = statusConfig[estado]
+            const yaVisitado = !!cliente.visitado_en
+            const sinGPS    = !cliente.lat || !cliente.lng
+
+            let distanciaTexto = sinGPS ? "Sin GPS" : "---"
+            if (!sinGPS && userLocation && cliente.lat && cliente.lng) {
+              const d = calcularDistancia(
+                userLocation.lat, userLocation.lng,
+                parseFloat(String(cliente.lat)),
+                parseFloat(String(cliente.lng))
+              )
+              distanciaTexto = formatearDistancia(d)
+            } else if (cliente.distancia_metros) {
+              distanciaTexto = formatearDistancia(cliente.distancia_metros)
+            }
+
+            return (
+              <button
+                key={cliente.id}
+                onClick={() => { setClienteActivo(cliente); setVista("gestion") }}
+                className={`flex overflow-hidden rounded-xl border transition-all duration-150 active:scale-[0.98] text-left w-full ${
+                  yaVisitado
+                    ? "border-white/5 bg-dark-surface opacity-70"
+                    : sinGPS
+                    ? "border-warning/30 bg-dark-surface"
+                    : "border-white/10 bg-dark-surface hover:border-navy-accent/50"
+                }`}
+              >
+                <div className={`w-1 shrink-0 ${config.barColor}`} />
+                <div className="flex flex-1 items-center gap-3 px-3 py-3">
+                  <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-bold font-mono text-gray-300">
+                    {getRuta(cliente.nombre)}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-white truncate">{getNombreSinRuta(cliente.nombre)}</p>
+                    <p className="truncate text-xs text-gray-500">{cliente.direccion}</p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <span className={`font-mono text-[11px] ${sinGPS ? 'text-warning' : 'text-gray-400'}`}>
+                      {distanciaTexto}
+                    </span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${config.bgOpacity} ${config.textColor}`}>
+                      {config.label}
+                    </span>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-gray-600 shrink-0" />
+                </div>
+              </button>
+            )
+          })
+        )}
+      </div>
+
+      {/* Botón flotante: Nuevo Cliente */}
+      <button
+        onClick={() => setVista("nuevo-cliente")}
+        className="fixed bottom-20 right-4 z-40 flex items-center gap-2 rounded-full bg-navy-accent px-4 py-3 text-white shadow-lg shadow-navy-accent/30 transition-all active:scale-95 hover:bg-navy-accent/90"
+      >
+        <Plus className="h-5 w-5" />
+        <span className="text-sm font-semibold">Nuevo Cliente</span>
+      </button>
+    </div>
+  )
+}
+
+// ============================================================================
+// GESTIÓN DEL CLIENTE (visita / pedido + captura GPS si no tiene)
+// ============================================================================
+interface GestionClienteProps {
+  cliente: ClienteConEstado
+  asesorId: string
+  userLocation: { lat: number; lng: number } | null
+  isOnline: boolean
+  onVolver: () => void
+  onExito: () => void
+}
+
+function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, onExito }: GestionClienteProps) {
+  const [tipoGestion, setTipoGestion]     = useState<TipoGestion>(null)
+  const [monto, setMonto]                 = useState("")
+  const [nota, setNota]                   = useState("")
+  const [loading, setLoading]             = useState(false)
+  const [guardandoGPS, setGuardandoGPS]   = useState(false)
+  const [gpsGuardado, setGpsGuardado]     = useState(false)
+  const [distancia, setDistancia]         = useState<number | null>(null)
+
+  const yaVisitado  = !!cliente.visitado_en
+  const sinGPS      = !cliente.lat || !cliente.lng
+  const radioPermitido = cliente.radio_metros ?? 50
+  const dentroDelRango = distancia !== null && distancia <= radioPermitido
+
+  useEffect(() => {
+    if (userLocation && cliente.lat && cliente.lng) {
+      setDistancia(calcularDistancia(
+        userLocation.lat, userLocation.lng,
+        parseFloat(String(cliente.lat)),
+        parseFloat(String(cliente.lng))
+      ))
+    }
+  }, [userLocation, cliente.lat, cliente.lng])
+
+  // Capturar y guardar GPS del cliente que no tiene coordenadas
+  const handleCapturarGPS = async () => {
+    if (!userLocation) { alert("Esperando GPS. Activa la ubicación."); return }
+    setGuardandoGPS(true)
+    try {
+      const res = await fetch('/api/clientes', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cliente_id: cliente.id, lat: userLocation.lat, lng: userLocation.lng }),
+      })
+      if (!res.ok) throw new Error()
+      setGpsGuardado(true)
+      // Actualizar distancia en pantalla
+      setDistancia(0)
+    } catch {
+      alert("Error guardando coordenadas. Intenta nuevamente.")
+    } finally {
+      setGuardandoGPS(false)
+    }
+  }
+
+  const handleRegistrar = async () => {
+    if (!tipoGestion) return
+    if (!userLocation) { alert("Esperando GPS. Activa la ubicación."); return }
+    if (tipoGestion === "pedido" && (!monto || parseFloat(monto) <= 0)) {
+      alert("Ingresa el monto del pedido"); return
+    }
+    setLoading(true)
+    try {
+      const payload = {
+        asesor_id:    asesorId,
+        cliente_id:   cliente.id,
+        lat:          userLocation.lat,
+        lng:          userLocation.lng,
+        notas:        nota || null,
+        hubo_pedido:  tipoGestion === "pedido",
+        valor_pedido: tipoGestion === "pedido" ? parseFloat(monto) : 0,
+      }
+      if (hayConexion()) {
+        const res = await fetch('/api/checkin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        if (!res.ok) throw new Error()
+      } else {
+        await guardarVisitaOffline({
+          offline_id: generarOfflineID(),
+          asesor_id: payload.asesor_id,
+          cliente_id: payload.cliente_id,
+          lat_capturada: payload.lat,
+          lng_capturada: payload.lng,
+          notas: payload.notas,
+          timestamp: new Date().toISOString(),
+          synced: false,
+        })
+      }
+      onExito()
+    } catch {
+      alert("Error al registrar. Intenta nuevamente.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col min-h-screen bg-dark-bg">
+
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-white/10">
+        <button onClick={onVolver} className="flex h-9 w-9 items-center justify-center rounded-xl bg-dark-surface text-gray-400 hover:text-white transition-colors">
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-gray-500 font-mono">Ruta {getRuta(cliente.nombre)}</p>
+          <h2 className="text-base font-bold text-white truncate">{getNombreSinRuta(cliente.nombre)}</h2>
+        </div>
+        {yaVisitado && (
+          <span className="shrink-0 rounded-full bg-success/20 text-success text-xs font-bold px-2 py-0.5">YA VISITADO</span>
+        )}
+        {sinGPS && !gpsGuardado && (
+          <span className="shrink-0 rounded-full bg-warning/20 text-warning text-xs font-bold px-2 py-0.5">SIN GPS</span>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 pb-32">
+
+        {/* Info del cliente */}
+        <div className="rounded-xl bg-dark-surface border border-white/10 p-4 space-y-2">
+          {cliente.direccion && (
+            <div className="flex items-start gap-2">
+              <MapPin className="h-4 w-4 text-gray-500 mt-0.5 shrink-0" />
+              <p className="text-sm text-gray-300">{cliente.direccion}</p>
             </div>
-            {userLocation && (
-              <span className="mt-0.5 text-xs text-white/70">
-                Distancia: {formatearDistancia(
-                  (() => {
-                    const R = 6371000
-                    const toRad = (deg: number) => (deg * Math.PI) / 180
-                    const dLat = toRad(selectedCliente.lat - userLocation.lat)
-                    const dLng = toRad(selectedCliente.lng - userLocation.lng)
-                    const a =
-                      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                      Math.cos(toRad(userLocation.lat)) *
-                        Math.cos(toRad(selectedCliente.lat)) *
-                        Math.sin(dLng / 2) *
-                        Math.sin(dLng / 2)
-                    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-                    return R * c
-                  })()
+          )}
+          {cliente.codigo && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">Código:</span>
+              <span className="text-xs font-mono text-gray-300">{cliente.codigo}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Bloque GPS del cliente sin coordenadas */}
+        {sinGPS && !gpsGuardado && (
+          <div className="rounded-xl border border-warning/40 bg-warning/10 p-4">
+            <div className="flex items-start gap-3 mb-3">
+              <Navigation className="h-5 w-5 text-warning mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-white">Este cliente no tiene ubicación GPS</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Puedes capturar su ubicación ahora desde donde estás para futuras visitas.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleCapturarGPS}
+              disabled={guardandoGPS || !userLocation}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-warning/20 border border-warning/40 py-3 text-warning font-semibold text-sm transition-all active:scale-[0.97] disabled:opacity-50"
+            >
+              {guardandoGPS
+                ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Guardando ubicación...</span></>
+                : <><Navigation className="h-4 w-4" /><span>Capturar ubicación actual</span></>
+              }
+            </button>
+            <p className="mt-2 text-center text-[10px] text-gray-500">
+              {userLocation ? "GPS activo — listo para capturar" : "Activando GPS..."}
+            </p>
+          </div>
+        )}
+
+        {gpsGuardado && (
+          <div className="rounded-xl border border-success/30 bg-success/10 p-3 flex items-center gap-2">
+            <Check className="h-4 w-4 text-success shrink-0" />
+            <p className="text-sm text-success font-medium">Ubicación guardada correctamente ✓</p>
+          </div>
+        )}
+
+        {/* GPS Status (solo si tiene coordenadas o ya capturó) */}
+        {(!sinGPS || gpsGuardado) && (
+          <div className={`rounded-xl border p-4 ${
+            !userLocation ? "border-gray-700 bg-gray-800/50" :
+            dentroDelRango ? "border-success/30 bg-success/10" : "border-warning/30 bg-warning/10"
+          }`}>
+            <div className="flex items-center gap-3">
+              <div className={`flex h-10 w-10 items-center justify-center rounded-full ${
+                !userLocation ? "bg-gray-700" :
+                dentroDelRango ? "bg-success/20" : "bg-warning/20"
+              }`}>
+                {!userLocation
+                  ? <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                  : dentroDelRango
+                  ? <Check className="h-5 w-5 text-success" />
+                  : <AlertTriangle className="h-5 w-5 text-warning" />
+                }
+              </div>
+              <div>
+                {!userLocation ? (
+                  <><p className="text-sm font-medium text-white">Obteniendo GPS...</p><p className="text-xs text-gray-400">Activa la ubicación</p></>
+                ) : gpsGuardado ? (
+                  <><p className="text-sm font-medium text-success">Ubicación registrada ✓</p><p className="text-xs text-gray-300">La visita se registrará como validada</p></>
+                ) : dentroDelRango ? (
+                  <><p className="text-sm font-medium text-success">Dentro del rango ✓</p><p className="text-xs text-gray-300">A {formatearDistancia(distancia!)} del cliente (máx. {radioPermitido}m)</p></>
+                ) : (
+                  <><p className="text-sm font-medium text-warning">Fuera del rango</p><p className="text-xs text-gray-300">A {formatearDistancia(distancia!)} — se marcará como sospechosa</p></>
                 )}
-              </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Ya visitado */}
+        {yaVisitado ? (
+          <div className="rounded-xl bg-dark-surface border border-white/10 p-4">
+            <p className="text-sm font-semibold text-white mb-3">Registro anterior</p>
+            <div className="space-y-2 text-sm text-gray-400">
+              <div className="flex justify-between">
+                <span>Estado</span>
+                <span className={cliente.validada ? "text-success font-medium" : "text-warning font-medium"}>
+                  {cliente.validada ? "✓ Validada" : "⚠ Sospechosa"}
+                </span>
+              </div>
+              {cliente.distancia_metros && (
+                <div className="flex justify-between">
+                  <span>Distancia registrada</span>
+                  <span className="text-white">{formatearDistancia(cliente.distancia_metros)}</span>
+                </div>
+              )}
+            </div>
+            <p className="mt-3 text-xs text-gray-600 text-center">Este cliente ya fue gestionado hoy</p>
+          </div>
+        ) : (
+          <>
+            {/* Tipo de gestión */}
+            <div>
+              <p className="text-sm font-semibold text-white mb-3">¿Qué pasó en esta visita?</p>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setTipoGestion(tipoGestion === "visita" ? null : "visita")}
+                  className={`flex flex-col items-center gap-2 rounded-xl border p-4 transition-all ${
+                    tipoGestion === "visita"
+                      ? "border-navy-accent bg-navy-accent/20 text-white"
+                      : "border-white/10 bg-dark-surface text-gray-400"
+                  }`}
+                >
+                  <Eye className={`h-7 w-7 ${tipoGestion === "visita" ? "text-navy-accent" : "text-gray-500"}`} />
+                  <span className="text-sm font-semibold">Solo Visita</span>
+                  <span className="text-[10px] text-center opacity-70">Sin pedido esta vez</span>
+                </button>
+                <button
+                  onClick={() => setTipoGestion(tipoGestion === "pedido" ? null : "pedido")}
+                  className={`flex flex-col items-center gap-2 rounded-xl border p-4 transition-all ${
+                    tipoGestion === "pedido"
+                      ? "border-success bg-success/20 text-white"
+                      : "border-white/10 bg-dark-surface text-gray-400"
+                  }`}
+                >
+                  <ShoppingBag className={`h-7 w-7 ${tipoGestion === "pedido" ? "text-success" : "text-gray-500"}`} />
+                  <span className="text-sm font-semibold">Hubo Pedido</span>
+                  <span className="text-[10px] text-center opacity-70">Registrar monto</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Monto */}
+            {tipoGestion === "pedido" && (
+              <div className="rounded-xl bg-dark-surface border border-success/30 p-4">
+                <label className="block text-sm font-medium text-white mb-2">Monto del pedido</label>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg font-bold text-gray-400">$</span>
+                  <input
+                    type="number"
+                    value={monto}
+                    onChange={e => setMonto(e.target.value)}
+                    placeholder="0"
+                    min="0"
+                    step="1000"
+                    autoFocus
+                    inputMode="numeric"
+                    className="flex-1 bg-transparent text-2xl font-bold text-white placeholder-gray-600 focus:outline-none"
+                  />
+                  <span className="text-sm text-gray-500">COP</span>
+                </div>
+                {monto && parseFloat(monto) > 0 && (
+                  <p className="mt-1 text-xs text-success">${parseFloat(monto).toLocaleString('es-CO')}</p>
+                )}
+              </div>
             )}
-          </button>
 
-          <div className="mt-2 space-y-2 rounded-lg border border-white/10 bg-dark-surface p-3">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={huboPedido}
-                onChange={(e) => setHuboPedido(e.target.checked)}
-                className="h-4 w-4 rounded border-white/20 bg-white/10 text-success focus:ring-success"
-              />
-              <span className="text-sm font-medium text-white">¿Hubo pedido?</span>
-            </label>
-
-            {huboPedido && (
-              <div className="flex items-center gap-2 pt-1">
-                <DollarSign className="h-4 w-4 text-gray-400" />
-                <input
-                  type="number"
-                  value={valorPedido}
-                  onChange={(e) => setValorPedido(e.target.value)}
-                  placeholder="0"
-                  min="0"
-                  step="1000"
-                  autoFocus
-                  inputMode="numeric"
-                  className="flex-1 rounded-lg border border-white/10 bg-navy px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:border-navy-accent focus:outline-none focus:ring-2 focus:ring-navy-accent/50"
+            {/* Nota */}
+            {tipoGestion && (
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Nota (opcional)</label>
+                <textarea
+                  value={nota}
+                  onChange={e => setNota(e.target.value)}
+                  placeholder="Ej: Cliente no estaba, volver mañana..."
+                  rows={2}
+                  className="w-full resize-none rounded-xl border border-white/10 bg-dark-surface px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-navy-accent focus:outline-none"
                 />
               </div>
             )}
-          </div>
+          </>
+        )}
+      </div>
 
-          {!showNoteField ? (
-            <button
-              onClick={() => setShowNoteField(true)}
-              className="mt-2 w-full text-center text-xs text-gray-500 transition-colors hover:text-gray-300"
-            >
-              Agregar nota opcional +
-            </button>
-          ) : (
-            <div className="mt-2 flex items-start gap-2">
-              <textarea
-                value={nota}
-                onChange={(e) => setNota(e.target.value)}
-                className="flex-1 resize-none rounded-lg border border-white/10 bg-dark-surface px-3 py-2 text-xs text-white placeholder:text-gray-500 focus:border-navy-accent focus:outline-none"
-                placeholder="Escribe una nota..."
-                rows={2}
-              />
-              <button
-                onClick={() => { setShowNoteField(false); setNota("") }}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-white/10 hover:text-white"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+      {/* Botón confirmar */}
+      {!yaVisitado && tipoGestion && (
+        <div className="fixed inset-x-0 bottom-16 z-40 px-4 pb-3">
+          <button
+            onClick={handleRegistrar}
+            disabled={loading || !userLocation}
+            className={`flex w-full items-center justify-center gap-3 rounded-xl py-4 text-white font-bold text-base shadow-lg transition-all active:scale-[0.97] disabled:opacity-50 ${
+              tipoGestion === "pedido" ? "bg-success shadow-success/25" : "bg-navy-accent shadow-navy-accent/25"
+            }`}
+          >
+            {loading
+              ? <><Loader2 className="h-5 w-5 animate-spin" /><span>REGISTRANDO...</span></>
+              : tipoGestion === "pedido"
+              ? <><ShoppingBag className="h-5 w-5" /><span>CONFIRMAR PEDIDO{monto ? ` · $${parseFloat(monto).toLocaleString('es-CO')}` : ''}</span></>
+              : <><Check className="h-5 w-5" /><span>CONFIRMAR VISITA</span></>
+            }
+          </button>
+          {!isOnline && (
+            <p className="mt-1.5 text-center text-[10px] text-warning">
+              SIN CONEXIÓN — se guardará y sincronizará al reconectar
+            </p>
           )}
-
-          <p className="mt-1.5 text-center font-mono text-[10px] text-gray-600">
-            {userLocation
-              ? `GPS activo · Precisión: ±8m ${!isOnline ? "· MODO OFFLINE" : ""}`
-              : "Activando GPS..."}
-          </p>
         </div>
       )}
+    </div>
+  )
+}
+
+// ============================================================================
+// NUEVO CLIENTE — formulario completo con GPS
+// ============================================================================
+interface NuevoClienteProps {
+  asesorId: string
+  userLocation: { lat: number; lng: number } | null
+  onVolver: () => void
+  onExito: () => void
+}
+
+function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClienteProps) {
+  const [nombre, setNombre]       = useState("")
+  const [direccion, setDireccion] = useState("")
+  const [telefono, setTelefono]   = useState("")
+  const [usarGPS, setUsarGPS]     = useState(true)
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState("")
+
+  const handleCrear = async () => {
+    if (!nombre.trim()) { setError("El nombre es obligatorio"); return }
+    setError("")
+    setLoading(true)
+    try {
+      const payload = {
+        nombre:    nombre.trim(),
+        direccion: direccion.trim() || null,
+        telefono:  telefono.trim() || null,
+        asesor_id: asesorId,
+        lat:       usarGPS && userLocation ? userLocation.lat : null,
+        lng:       usarGPS && userLocation ? userLocation.lng : null,
+      }
+      const res = await fetch('/api/clientes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error || "Error creando cliente"); return }
+      onExito()
+    } catch {
+      setError("Error de conexión. Intenta nuevamente.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col min-h-screen bg-dark-bg">
+
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-white/10">
+        <button onClick={onVolver} className="flex h-9 w-9 items-center justify-center rounded-xl bg-dark-surface text-gray-400 hover:text-white transition-colors">
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+        <div>
+          <p className="text-xs text-gray-500">Nuevo cliente</p>
+          <h2 className="text-base font-bold text-white">Registrar cliente</h2>
+        </div>
+        <UserPlus className="ml-auto h-5 w-5 text-navy-accent" />
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 pb-32">
+
+        {/* Campos */}
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Nombre del cliente *</label>
+            <input
+              type="text"
+              value={nombre}
+              onChange={e => { setNombre(e.target.value); setError("") }}
+              placeholder="Ej: Tienda La Esquina"
+              autoFocus
+              className={`w-full rounded-xl border bg-dark-surface px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 transition-all ${
+                error && !nombre ? "border-danger focus:ring-danger/30" : "border-white/10 focus:border-navy-accent focus:ring-navy-accent/30"
+              }`}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Dirección</label>
+            <input
+              type="text"
+              value={direccion}
+              onChange={e => setDireccion(e.target.value)}
+              placeholder="Ej: Calle 5 #10-20"
+              className="w-full rounded-xl border border-white/10 bg-dark-surface px-4 py-3 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Teléfono</label>
+            <input
+              type="tel"
+              value={telefono}
+              onChange={e => setTelefono(e.target.value)}
+              placeholder="Ej: 3001234567"
+              inputMode="tel"
+              className="w-full rounded-xl border border-white/10 bg-dark-surface px-4 py-3 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none"
+            />
+          </div>
+        </div>
+
+        {/* GPS */}
+        <div className={`rounded-xl border p-4 ${
+          usarGPS && userLocation ? "border-success/30 bg-success/10" : "border-white/10 bg-dark-surface"
+        }`}>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={usarGPS}
+              onChange={e => setUsarGPS(e.target.checked)}
+              className="h-4 w-4 rounded border-white/20 text-success focus:ring-success"
+            />
+            <div>
+              <p className="text-sm font-medium text-white">Capturar ubicación GPS ahora</p>
+              <p className="text-xs text-gray-400">
+                {usarGPS
+                  ? userLocation
+                    ? `📍 ${userLocation.lat.toFixed(6)}, ${userLocation.lng.toFixed(6)}`
+                    : "Obteniendo GPS..."
+                  : "No se guardará ubicación (se puede agregar después)"
+                }
+              </p>
+            </div>
+          </label>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div className="flex items-center gap-2 rounded-xl bg-danger/10 border border-danger/20 px-4 py-3">
+            <AlertTriangle className="h-4 w-4 text-danger shrink-0" />
+            <p className="text-sm text-danger">{error}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Botón crear */}
+      <div className="fixed inset-x-0 bottom-16 z-40 px-4 pb-3">
+        <button
+          onClick={handleCrear}
+          disabled={loading || !nombre.trim()}
+          className="flex w-full items-center justify-center gap-3 rounded-xl bg-navy-accent py-4 text-white font-bold text-base shadow-lg shadow-navy-accent/25 transition-all active:scale-[0.97] disabled:opacity-50"
+        >
+          {loading
+            ? <><Loader2 className="h-5 w-5 animate-spin" /><span>CREANDO...</span></>
+            : <><UserPlus className="h-5 w-5" /><span>CREAR CLIENTE</span></>
+          }
+        </button>
+      </div>
     </div>
   )
 }
