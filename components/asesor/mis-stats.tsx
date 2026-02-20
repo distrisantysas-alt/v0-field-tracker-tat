@@ -1,8 +1,13 @@
 'use client';
 
+// ============================================================================
+// components/asesor/mis-stats.tsx (ACTUALIZADO)
+// ============================================================================
+
 import { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import { Flame, Trophy, TrendingUp, Loader2 } from 'lucide-react';
+import { type AsesorSession } from './login-asesor';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -13,26 +18,27 @@ interface DiaStats {
   vendido: number;
 }
 
-export function MisStats() {
-  const ASESOR_ID = '0a2da93b-5e18-4b2d-882c-d40f8e84b374';
+interface MisStatsProps {
+  asesor: AsesorSession
+}
 
-  // Obtener fecha de hoy y últimos 7 días
-  const hoy = new Date().toLocaleString('en-CA', { 
-    timeZone: 'America/Bogota' 
+export function MisStats({ asesor }: MisStatsProps) {
+  const ASESOR_ID = asesor.id;
+
+  const hoy = new Date().toLocaleString('en-CA', {
+    timeZone: 'America/Bogota'
   }).split(',')[0];
 
   const hace7Dias = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
     .toLocaleString('en-CA', { timeZone: 'America/Bogota' })
     .split(',')[0];
 
-  // Fetch resumen de la semana
   const { data, error } = useSWR(
     `/api/resumen-dia?asesor_id=${ASESOR_ID}&fecha_inicio=${hace7Dias}&fecha_fin=${hoy}&rango=true`,
     fetcher,
     { refreshInterval: 60000 }
   );
 
-  // Fetch resumen de hoy
   const { data: hoyData } = useSWR(
     `/api/resumen-dia?asesor_id=${ASESOR_ID}&fecha=${hoy}`,
     fetcher,
@@ -55,45 +61,32 @@ export function MisStats() {
     );
   }
 
-  // Calcular racha (días consecutivos con visitas)
   const calcularRacha = () => {
     if (!data.por_dia) return 0;
-    
     const diasOrdenados = [...data.por_dia].reverse();
     let racha = 0;
-    
     for (const dia of diasOrdenados) {
-      if (dia.visitas > 0) {
-        racha++;
-      } else {
-        break;
-      }
+      if (dia.visitas > 0) { racha++; } else { break; }
     }
-    
     return racha;
   };
 
-  // Mejor semana (máximo de visitas en un día)
-  const mejorDia = data.por_dia 
+  const mejorDia = data.por_dia
     ? Math.max(...data.por_dia.map((d: DiaStats) => d.visitas))
     : 0;
 
   const racha = calcularRacha();
 
-  // Días de la semana
   const diasSemana = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
   const visitasPorDia = data.por_dia || [];
 
-  // Normalizar datos para el gráfico (últimos 7 días)
   const ultimos7Dias = Array.from({ length: 7 }, (_, i) => {
     const fecha = new Date(Date.now() - (6 - i) * 24 * 60 * 60 * 1000);
-    const fechaStr = fecha.toLocaleString('en-CA', { 
-      timeZone: 'America/Bogota' 
+    const fechaStr = fecha.toLocaleString('en-CA', {
+      timeZone: 'America/Bogota'
     }).split(',')[0];
-    
     const diaData = visitasPorDia.find((d: DiaStats) => d.fecha === fechaStr);
     const diaSemana = diasSemana[fecha.getDay() === 0 ? 6 : fecha.getDay() - 1];
-    
     return {
       dia: diaSemana,
       visitas: diaData?.visitas || 0,
@@ -103,19 +96,22 @@ export function MisStats() {
 
   const maxVisitas = Math.max(...ultimos7Dias.map(d => d.visitas), 1);
 
-  // Ranking simulado (en producción vendría de API)
+  // Ranking: el asesor actual más dos placeholders
+  const visitasHoy = hoyData?.metricas?.visitas?.total ?? 0;
   const ranking = [
-    { nombre: 'Ana Gutiérrez', visitas: 18 },
-    { nombre: 'Carlos Méndez (tú)', visitas: hoyData.metricas.visitas.total, esUsuario: true },
-    { nombre: 'Patricia López', visitas: 13 }
-  ];
+    { nombre: 'Ana Gutiérrez', visitas: 18, esUsuario: false },
+    { nombre: `${asesor.nombre} (tú)`, visitas: visitasHoy, esUsuario: true },
+    { nombre: 'Patricia López', visitas: 13, esUsuario: false },
+  ].sort((a, b) => b.visitas - a.visitas);
 
   return (
     <div className="flex flex-col h-screen bg-dark overflow-y-auto pb-20">
       {/* Header */}
       <div className="px-4 py-4 bg-dark-surface border-b border-white/10">
         <h1 className="text-xl font-bold text-white">Mis Estadísticas</h1>
-        <p className="text-sm text-gray-400 mt-1">Rendimiento esta semana</p>
+        <p className="text-sm text-gray-400 mt-1">
+          {asesor.nombre}{asesor.zona ? ` · ${asesor.zona}` : ''} · Rendimiento esta semana
+        </p>
       </div>
 
       {/* Gráfico de visitas */}
@@ -143,7 +139,6 @@ export function MisStats() {
 
       {/* Cards de métricas */}
       <div className="px-4 grid grid-cols-2 gap-3 mb-6">
-        {/* Racha actual */}
         <div className="bg-dark-surface rounded-xl p-4 border border-white/10">
           <div className="flex items-center gap-2 mb-2">
             <Flame className="h-5 w-5 text-orange-500" />
@@ -155,7 +150,6 @@ export function MisStats() {
           </p>
         </div>
 
-        {/* Mejor semana */}
         <div className="bg-dark-surface rounded-xl p-4 border border-white/10">
           <div className="flex items-center gap-2 mb-2">
             <Trophy className="h-5 w-5 text-yellow-500" />
@@ -176,15 +170,15 @@ export function MisStats() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-xs text-white/60">Total visitas</p>
-              <p className="text-2xl font-bold text-white">{data.totales.visitas}</p>
+              <p className="text-2xl font-bold text-white">{data.totales?.visitas ?? 0}</p>
             </div>
             <div>
               <p className="text-xs text-white/60">Pedidos</p>
-              <p className="text-2xl font-bold text-success">{data.totales.pedidos}</p>
+              <p className="text-2xl font-bold text-success">{data.totales?.pedidos ?? 0}</p>
             </div>
             <div className="col-span-2">
               <p className="text-xs text-white/60">Total vendido</p>
-              <p className="text-2xl font-bold text-white">{data.totales.vendido_formato}</p>
+              <p className="text-2xl font-bold text-white">{data.totales?.vendido_formato ?? '$0'}</p>
             </div>
           </div>
         </div>
@@ -194,7 +188,6 @@ export function MisStats() {
       <div className="px-4">
         <h2 className="text-white font-semibold mb-3">
           Tu posición hoy
-          <span className="text-sm text-gray-400 ml-2">#2 de 10</span>
         </h2>
         <div className="space-y-2">
           {ranking.map((item, index) => (
