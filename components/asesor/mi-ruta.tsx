@@ -3,15 +3,6 @@
 // ============================================================================
 // components/asesor/mi-ruta.tsx - Vista Principal del Asesor
 // ============================================================================
-// Funcionalidades:
-// ✅ Carga datos reales desde /api/clientes-del-dia
-// ✅ Captura GPS y registra visitas
-// ✅ Registro de pedidos (hubo_pedido, valor_pedido)
-// ✅ Funciona offline (guarda en IndexedDB)
-// ✅ Sincroniza automáticamente cuando vuelve conexión
-// ✅ Valida distancia GPS (<50m = OK, >200m = sospechosa)
-// ✅ Zona horaria: Colombia (America/Bogota)
-// ============================================================================
 
 import { useState, useEffect } from "react"
 import useSWR from "swr"
@@ -25,50 +16,51 @@ import {
   sincronizarVisitasOffline,
   generarOfflineID,
 } from "@/lib/db"
+import { type AsesorSession } from "./login-asesor"
 
 type ClientStatus = "validada" | "sospechosa" | "en-progreso" | "pendiente" | "omitida"
 
-const statusConfig: Record<ClientStatus, { 
+const statusConfig: Record<ClientStatus, {
   color: string
   barColor: string
   label: string
   bgOpacity: string
-  textColor: string 
+  textColor: string
 }> = {
-  validada: { 
-    color: "bg-success", 
-    barColor: "bg-success", 
-    label: "VALIDADA", 
-    bgOpacity: "bg-success/15", 
-    textColor: "text-success" 
+  validada: {
+    color: "bg-success",
+    barColor: "bg-success",
+    label: "VALIDADA",
+    bgOpacity: "bg-success/15",
+    textColor: "text-success"
   },
-  sospechosa: { 
-    color: "bg-warning", 
-    barColor: "bg-warning", 
-    label: "SOSPECHOSA", 
-    bgOpacity: "bg-warning/15", 
-    textColor: "text-warning" 
+  sospechosa: {
+    color: "bg-warning",
+    barColor: "bg-warning",
+    label: "SOSPECHOSA",
+    bgOpacity: "bg-warning/15",
+    textColor: "text-warning"
   },
-  "en-progreso": { 
-    color: "bg-navy-accent", 
-    barColor: "bg-navy-accent", 
-    label: "EN PROGRESO", 
-    bgOpacity: "bg-navy-accent/15", 
-    textColor: "text-navy-accent" 
+  "en-progreso": {
+    color: "bg-navy-accent",
+    barColor: "bg-navy-accent",
+    label: "EN PROGRESO",
+    bgOpacity: "bg-navy-accent/15",
+    textColor: "text-navy-accent"
   },
-  pendiente: { 
-    color: "bg-gray-500", 
-    barColor: "bg-gray-500", 
-    label: "PENDIENTE", 
-    bgOpacity: "bg-gray-500/15", 
-    textColor: "text-gray-400" 
+  pendiente: {
+    color: "bg-gray-500",
+    barColor: "bg-gray-500",
+    label: "PENDIENTE",
+    bgOpacity: "bg-gray-500/15",
+    textColor: "text-gray-400"
   },
-  omitida: { 
-    color: "bg-danger", 
-    barColor: "bg-danger", 
-    label: "OMITIDA", 
-    bgOpacity: "bg-danger/15", 
-    textColor: "text-danger" 
+  omitida: {
+    color: "bg-danger",
+    barColor: "bg-danger",
+    label: "OMITIDA",
+    bgOpacity: "bg-danger/15",
+    textColor: "text-danger"
   },
 }
 
@@ -76,11 +68,11 @@ const fetcher = (url: string) => fetch(url).then((r) => r.json())
 
 function getCurrentTime() {
   const now = new Date()
-  return now.toLocaleTimeString("es-CO", { 
+  return now.toLocaleTimeString("es-CO", {
     timeZone: "America/Bogota",
-    hour: "2-digit", 
-    minute: "2-digit", 
-    second: "2-digit" 
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
   })
 }
 
@@ -91,16 +83,27 @@ function determinarEstadoCliente(cliente: ClienteConEstado): ClientStatus {
   return "pendiente"
 }
 
-export function MiRuta() {
-  // HARDCODED: En producción, obtener del auth/session
-  const ASESOR_ID = "0a2da93b-5e18-4b2d-882c-d40f8e84b374" // Carlos Méndez
-  
-  // Obtener fecha actual en zona horaria Colombia
-  const fecha = new Date().toLocaleString('en-CA', { 
-    timeZone: 'America/Bogota' 
-  }).split(',')[0] // Formato: 2026-02-15
+function getInitials(nombre: string): string {
+  return nombre
+    .split(' ')
+    .map((n: string) => n[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
+}
 
-  // Estado local
+interface MiRutaProps {
+  asesor: AsesorSession
+}
+
+export function MiRuta({ asesor }: MiRutaProps) {
+  const ASESOR_ID = asesor.id
+
+  // Obtener fecha actual en zona horaria Colombia
+  const fecha = new Date().toLocaleString('en-CA', {
+    timeZone: 'America/Bogota'
+  }).split(',')[0]
+
   const [showNoteField, setShowNoteField] = useState(false)
   const [currentTime, setCurrentTime] = useState(getCurrentTime())
   const [isOnline, setIsOnline] = useState(true)
@@ -112,17 +115,15 @@ export function MiRuta() {
   const [valorPedido, setValorPedido] = useState("")
   const [mostrarResumen, setMostrarResumen] = useState(false)
 
-  // Fetch datos desde API
   const { data, error, mutate } = useSWR(
     `/api/clientes-del-dia?asesor_id=${ASESOR_ID}&fecha=${fecha}`,
     fetcher,
     {
-      refreshInterval: 30000, // Refrescar cada 30 segundos
+      refreshInterval: 30000,
       revalidateOnFocus: true,
     }
   )
 
-  // Fetch resumen del día
   const { data: resumenData } = useSWR(
     `/api/resumen-dia?asesor_id=${ASESOR_ID}&fecha=${fecha}`,
     fetcher,
@@ -132,7 +133,6 @@ export function MiRuta() {
     }
   )
 
-  // Actualizar reloj cada segundo
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(getCurrentTime())
@@ -140,33 +140,30 @@ export function MiRuta() {
     return () => clearInterval(timer)
   }, [])
 
-  // Monitorear conexión a internet
   useEffect(() => {
     const updateOnlineStatus = () => setIsOnline(navigator.onLine)
-    
+
     window.addEventListener('online', updateOnlineStatus)
     window.addEventListener('offline', updateOnlineStatus)
-    
-    // Sincronizar visitas offline cuando vuelve conexión
+
     if (navigator.onLine) {
       sincronizarVisitasOffline().then(({ sincronizadas, errores }) => {
         if (sincronizadas > 0) {
           console.log(`✅ Sincronizadas ${sincronizadas} visitas offline`)
-          mutate() // Refrescar datos
+          mutate()
         }
         if (errores > 0) {
           console.error(`❌ ${errores} visitas no pudieron sincronizarse`)
         }
       })
     }
-    
+
     return () => {
       window.removeEventListener('online', updateOnlineStatus)
       window.removeEventListener('offline', updateOnlineStatus)
     }
   }, [isOnline, mutate])
 
-  // Obtener ubicación GPS del usuario cada 10 segundos
   useEffect(() => {
     const updateLocation = async () => {
       try {
@@ -180,30 +177,11 @@ export function MiRuta() {
       }
     }
 
-    updateLocation() // Primera vez
-    const interval = setInterval(updateLocation, 10000) // Cada 10 segundos
-
+    updateLocation()
+    const interval = setInterval(updateLocation, 10000)
     return () => clearInterval(interval)
   }, [])
 
-  // Encontrar cliente más cercano pendiente (OPCIONAL - ya no se auto-selecciona)
-  useEffect(() => {
-    if (!data?.clientes || !userLocation) return
-
-    const clientesPendientes = data.clientes.filter(
-      (c: ClienteConEstado) => !c.visitado_en
-    )
-
-    if (clientesPendientes.length === 0) {
-      setSelectedCliente(null)
-      return
-    }
-
-    // NO auto-seleccionar - dejar que el usuario elija
-    // Si no hay cliente seleccionado, se puede sugerir el más cercano visualmente
-  }, [data, userLocation])
-
-  // Validar pedido antes de enviar
   const validarPedido = (): boolean => {
     if (huboPedido && (!valorPedido || parseFloat(valorPedido) <= 0)) {
       alert('Si hubo pedido, debes especificar un valor válido')
@@ -212,7 +190,6 @@ export function MiRuta() {
     return true
   }
 
-  // Manejar check-in
   const handleCheckin = async () => {
     if (!selectedCliente || !userLocation) return
     if (!validarPedido()) return
@@ -231,7 +208,6 @@ export function MiRuta() {
       }
 
       if (hayConexion()) {
-        // ONLINE: Enviar directamente a la API
         const response = await fetch('/api/checkin', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -243,7 +219,6 @@ export function MiRuta() {
         const result = await response.json()
         console.log('✅ Visita registrada:', result.mensajes)
       } else {
-        // OFFLINE: Guardar en IndexedDB
         await guardarVisitaOffline({
           offline_id: generarOfflineID(),
           asesor_id: visitaData.asesor_id,
@@ -257,15 +232,13 @@ export function MiRuta() {
         console.log('💾 Visita guardada offline')
       }
 
-      // Limpiar estado
       setNota("")
       setHuboPedido(false)
       setValorPedido("")
       setShowNoteField(false)
       setSelectedCliente(null)
-      setMostrarResumen(true)  // Mostrar resumen
+      setMostrarResumen(true)
 
-      // Refrescar datos
       mutate()
     } catch (error) {
       console.error('Error en check-in:', error)
@@ -275,17 +248,13 @@ export function MiRuta() {
     }
   }
 
-  // Estados de carga
   if (error) {
     return (
       <div className="flex h-screen items-center justify-center px-4">
         <div className="text-center">
           <AlertTriangle className="mx-auto h-12 w-12 text-danger" />
           <p className="mt-4 text-white">Error cargando datos</p>
-          <button
-            onClick={() => mutate()}
-            className="mt-2 text-sm text-navy-accent hover:underline"
-          >
+          <button onClick={() => mutate()} className="mt-2 text-sm text-navy-accent hover:underline">
             Reintentar
           </button>
         </div>
@@ -311,15 +280,16 @@ export function MiRuta() {
       <div className="flex items-center justify-between px-4 pb-2 pt-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-navy-accent text-sm font-bold text-white">
-            CM
+            {getInitials(asesor.nombre)}
           </div>
           <div>
-            <p className="text-sm font-semibold text-white">Carlos Méndez</p>
-            <p className="text-xs text-gray-400">Asesor Comercial — Zona Centro</p>
+            <p className="text-sm font-semibold text-white">{asesor.nombre}</p>
+            <p className="text-xs text-gray-400">
+              Asesor Comercial{asesor.zona ? ` — ${asesor.zona}` : ''}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Indicador de conexión */}
           {isOnline ? (
             <Wifi className="h-4 w-4 text-success" />
           ) : (
@@ -352,7 +322,6 @@ export function MiRuta() {
           </div>
           <p className="mt-0.5 text-sm text-white/60">visitas completadas hoy</p>
 
-          {/* Progress Bar */}
           <div className="relative mt-4 h-3 overflow-hidden rounded-full bg-white/10">
             <div
               className={`h-full rounded-full transition-all duration-500 ${
@@ -362,13 +331,12 @@ export function MiRuta() {
                   ? "bg-warning"
                   : "bg-danger"
               }`}
-              style={{ width: `${(visited / total) * 100}%` }}
+              style={{ width: `${total > 0 ? (visited / total) * 100 : 0}%` }}
             >
               <div className="absolute inset-0 animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent" />
             </div>
           </div>
 
-          {/* Mini Stats */}
           <div className="mt-4 flex items-center gap-4">
             <div className="flex items-center gap-1.5">
               <Check className="h-3.5 w-3.5 text-success" />
@@ -384,14 +352,13 @@ export function MiRuta() {
             </div>
           </div>
 
-          {/* Current time */}
           <div className="mt-3 text-right">
             <span className="font-mono text-xs text-white/40">{currentTime}</span>
           </div>
         </div>
       </div>
 
-      {/* Resumen del Día (si hay visitas) */}
+      {/* Resumen del Día */}
       {resumenData && resumenData.metricas.visitas.total > 0 && (
         <div className="mx-4 mt-4 overflow-hidden rounded-xl bg-gradient-to-br from-navy-accent/20 to-success/10 border border-navy-accent/30 p-4">
           <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
@@ -430,8 +397,7 @@ export function MiRuta() {
           const status = determinarEstadoCliente(cliente)
           const config = statusConfig[status]
           const isSelected = selectedCliente?.id === cliente.id
-          
-          // Calcular distancia actual si tenemos ubicación
+
           let distanciaActual = "---"
           if (userLocation && !cliente.visitado_en) {
             const R = 6371000
@@ -474,12 +440,8 @@ export function MiRuta() {
                   <p className="truncate text-xs text-gray-500">{cliente.direccion}</p>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
-                  <span className="font-mono text-[11px] text-gray-400">
-                    {distanciaActual}
-                  </span>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${config.bgOpacity} ${config.textColor}`}
-                  >
+                  <span className="font-mono text-[11px] text-gray-400">{distanciaActual}</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${config.bgOpacity} ${config.textColor}`}>
                     {config.label}
                   </span>
                 </div>
@@ -529,7 +491,6 @@ export function MiRuta() {
             )}
           </button>
 
-          {/* Campos de Pedido */}
           <div className="mt-2 space-y-2 rounded-lg border border-white/10 bg-dark-surface p-3">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -540,7 +501,7 @@ export function MiRuta() {
               />
               <span className="text-sm font-medium text-white">¿Hubo pedido?</span>
             </label>
-            
+
             {huboPedido && (
               <div className="flex items-center gap-2 pt-1">
                 <DollarSign className="h-4 w-4 text-gray-400" />
@@ -559,7 +520,6 @@ export function MiRuta() {
             )}
           </div>
 
-          {/* Campo de Notas */}
           {!showNoteField ? (
             <button
               onClick={() => setShowNoteField(true)}
@@ -577,10 +537,7 @@ export function MiRuta() {
                 rows={2}
               />
               <button
-                onClick={() => {
-                  setShowNoteField(false)
-                  setNota("")
-                }}
+                onClick={() => { setShowNoteField(false); setNota("") }}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-white/10 hover:text-white"
               >
                 <X className="h-4 w-4" />
