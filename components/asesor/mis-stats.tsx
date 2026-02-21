@@ -1,10 +1,12 @@
 'use client';
 
 // ============================================================================
-// components/asesor/mis-stats.tsx (ACTUALIZADO)
+// components/asesor/mis-stats.tsx
+// ✅ Ranking real desde la base de datos (solo asesores activos)
+// ✅ Gráfico semanal real
+// ✅ Métricas reales
 // ============================================================================
 
-import { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import { Flame, Trophy, TrendingUp, Loader2 } from 'lucide-react';
 import { type AsesorSession } from './login-asesor';
@@ -20,6 +22,10 @@ interface DiaStats {
 
 interface MisStatsProps {
   asesor: AsesorSession
+}
+
+function getInitials(nombre: string) {
+  return nombre.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
 }
 
 export function MisStats({ asesor }: MisStatsProps) {
@@ -45,9 +51,15 @@ export function MisStats({ asesor }: MisStatsProps) {
     { refreshInterval: 30000 }
   );
 
+  const { data: rankingData } = useSWR(
+    `/api/ranking-dia?fecha=${hoy}`,
+    fetcher,
+    { refreshInterval: 60000 }
+  );
+
   if (error) {
     return (
-      <div className="flex h-screen items-center justify-center bg-dark">
+      <div className="flex h-screen items-center justify-center bg-dark-bg">
         <p className="text-red-500">Error cargando estadísticas</p>
       </div>
     );
@@ -55,7 +67,7 @@ export function MisStats({ asesor }: MisStatsProps) {
 
   if (!data || !hoyData) {
     return (
-      <div className="flex h-screen items-center justify-center bg-dark">
+      <div className="flex h-screen items-center justify-center bg-dark-bg">
         <Loader2 className="h-8 w-8 animate-spin text-navy-accent" />
       </div>
     );
@@ -72,7 +84,7 @@ export function MisStats({ asesor }: MisStatsProps) {
   };
 
   const mejorDia = data.por_dia
-    ? Math.max(...data.por_dia.map((d: DiaStats) => d.visitas))
+    ? Math.max(...data.por_dia.map((d: DiaStats) => d.visitas), 0)
     : 0;
 
   const racha = calcularRacha();
@@ -96,21 +108,38 @@ export function MisStats({ asesor }: MisStatsProps) {
 
   const maxVisitas = Math.max(...ultimos7Dias.map(d => d.visitas), 1);
 
-  // Ranking: el asesor actual más dos placeholders
-  const visitasHoy = hoyData?.metricas?.visitas?.total ?? 0;
-  const ranking = [
-    { nombre: 'Ana Gutiérrez', visitas: 18, esUsuario: false },
-    { nombre: `${asesor.nombre} (tú)`, visitas: visitasHoy, esUsuario: true },
-    { nombre: 'Patricia López', visitas: 13, esUsuario: false },
-  ].sort((a, b) => b.visitas - a.visitas);
+  // Ranking real con posición del asesor actual
+  const rankingReal: { id: string; nombre: string; visitas: number; esUsuario: boolean }[] =
+    rankingData?.ranking
+      ? rankingData.ranking.map((r: any) => ({
+          id:        r.id,
+          nombre:    r.id === ASESOR_ID ? `${r.nombre} (tú)` : r.nombre,
+          visitas:   r.visitas,
+          esUsuario: r.id === ASESOR_ID,
+        }))
+      : [];
+
+  // Si el asesor no aparece aún (0 visitas), lo agrego al final
+  const asesorEnRanking = rankingReal.find(r => r.esUsuario)
+  if (!asesorEnRanking) {
+    rankingReal.push({
+      id: ASESOR_ID,
+      nombre: `${asesor.nombre} (tú)`,
+      visitas: hoyData?.metricas?.visitas?.total ?? 0,
+      esUsuario: true,
+    })
+  }
+
+  const posicion = rankingReal.findIndex(r => r.esUsuario) + 1;
 
   return (
-    <div className="flex flex-col h-screen bg-dark overflow-y-auto pb-20">
+    <div className="flex flex-col min-h-screen bg-dark-bg overflow-y-auto pb-20">
+
       {/* Header */}
       <div className="px-4 py-4 bg-dark-surface border-b border-white/10">
         <h1 className="text-xl font-bold text-white">Mis Estadísticas</h1>
         <p className="text-sm text-gray-400 mt-1">
-          {asesor.nombre}{asesor.zona ? ` · ${asesor.zona}` : ''} · Rendimiento esta semana
+          {asesor.nombre}{asesor.zona ? ` · ${asesor.zona}` : ''} · Esta semana
         </p>
       </div>
 
@@ -122,15 +151,16 @@ export function MisStats({ asesor }: MisStatsProps) {
             const altura = (dia.visitas / maxVisitas) * 100;
             return (
               <div key={index} className="flex-1 flex flex-col items-center gap-2">
-                <div className="w-full flex items-end justify-center h-32">
+                <span className="text-[10px] text-gray-500">{dia.visitas > 0 ? dia.visitas : ''}</span>
+                <div className="w-full flex items-end justify-center h-28">
                   <div
-                    className={`w-full rounded-t transition-all ${
-                      dia.esHoy ? 'bg-success' : 'bg-navy'
-                    }`}
-                    style={{ height: `${altura}%`, minHeight: dia.visitas > 0 ? '8px' : '0' }}
+                    className={`w-full rounded-t transition-all ${dia.esHoy ? 'bg-success' : 'bg-navy'}`}
+                    style={{ height: `${altura}%`, minHeight: dia.visitas > 0 ? '8px' : '2px' }}
                   />
                 </div>
-                <span className="text-xs text-gray-400">{dia.dia}</span>
+                <span className={`text-xs ${dia.esHoy ? 'text-success font-bold' : 'text-gray-400'}`}>
+                  {dia.dia}
+                </span>
               </div>
             );
           })}
@@ -138,18 +168,15 @@ export function MisStats({ asesor }: MisStatsProps) {
       </div>
 
       {/* Cards de métricas */}
-      <div className="px-4 grid grid-cols-2 gap-3 mb-6">
+      <div className="px-4 grid grid-cols-2 gap-3 mb-4">
         <div className="bg-dark-surface rounded-xl p-4 border border-white/10">
           <div className="flex items-center gap-2 mb-2">
             <Flame className="h-5 w-5 text-orange-500" />
             <span className="text-sm text-gray-400">Racha actual</span>
           </div>
           <p className="text-3xl font-bold text-white">{racha}</p>
-          <p className="text-xs text-gray-500 mt-1">
-            {racha === 1 ? 'día' : 'días'} consecutivos
-          </p>
+          <p className="text-xs text-gray-500 mt-1">{racha === 1 ? 'día' : 'días'} consecutivos</p>
         </div>
-
         <div className="bg-dark-surface rounded-xl p-4 border border-white/10">
           <div className="flex items-center gap-2 mb-2">
             <Trophy className="h-5 w-5 text-yellow-500" />
@@ -161,7 +188,7 @@ export function MisStats({ asesor }: MisStatsProps) {
       </div>
 
       {/* Métricas de ventas */}
-      <div className="px-4 mb-6">
+      <div className="px-4 mb-4">
         <div className="bg-gradient-to-br from-navy to-navy-accent rounded-xl p-4 border border-white/10">
           <div className="flex items-center gap-2 mb-3">
             <TrendingUp className="h-5 w-5 text-success" />
@@ -184,45 +211,63 @@ export function MisStats({ asesor }: MisStatsProps) {
         </div>
       </div>
 
-      {/* Ranking */}
+      {/* Ranking real */}
       <div className="px-4">
-        <h2 className="text-white font-semibold mb-3">
-          Tu posición hoy
-        </h2>
-        <div className="space-y-2">
-          {ranking.map((item, index) => (
-            <div
-              key={index}
-              className={`flex items-center gap-3 p-3 rounded-xl ${
-                item.esUsuario
-                  ? 'bg-navy-accent/20 border border-navy-accent'
-                  : 'bg-dark-surface border border-white/10'
-              }`}
-            >
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-white font-semibold">Ranking de hoy</h2>
+          {posicion > 0 && (
+            <span className="text-xs text-gray-500">
+              Tu posición: <span className="text-navy-accent font-bold">#{posicion}</span>
+            </span>
+          )}
+        </div>
+
+        {!rankingData ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-gray-500" />
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {rankingReal.slice(0, 10).map((item, index) => (
               <div
-                className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
-                  index === 0
-                    ? 'bg-yellow-500 text-dark'
-                    : item.esUsuario
-                    ? 'bg-navy-accent text-white'
-                    : 'bg-gray-600 text-gray-300'
+                key={item.id}
+                className={`flex items-center gap-3 p-3 rounded-xl ${
+                  item.esUsuario
+                    ? 'bg-navy-accent/20 border border-navy-accent'
+                    : 'bg-dark-surface border border-white/10'
                 }`}
               >
-                {index + 1}
+                {/* Posición */}
+                <div className={`flex items-center justify-center w-7 h-7 rounded-full text-sm font-bold shrink-0 ${
+                  index === 0 ? 'bg-yellow-500 text-black' :
+                  index === 1 ? 'bg-gray-300 text-black' :
+                  index === 2 ? 'bg-amber-600 text-white' :
+                  item.esUsuario ? 'bg-navy-accent text-white' :
+                  'bg-gray-700 text-gray-300'
+                }`}>
+                  {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
+                </div>
+                {/* Avatar con iniciales */}
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-bold text-white">
+                  {getInitials(item.nombre.replace(' (tú)', ''))}
+                </div>
+                {/* Nombre */}
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-medium truncate ${item.esUsuario ? 'text-white' : 'text-gray-300'}`}>
+                    {item.nombre}
+                  </p>
+                </div>
+                {/* Visitas */}
+                <div className="text-right shrink-0">
+                  <p className={`text-lg font-bold ${item.esUsuario ? 'text-white' : 'text-gray-400'}`}>
+                    {item.visitas}
+                  </p>
+                  <p className="text-[10px] text-gray-500">visitas</p>
+                </div>
               </div>
-              <div className="flex-1">
-                <p className={`text-sm font-medium ${item.esUsuario ? 'text-white' : 'text-gray-300'}`}>
-                  {item.nombre}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className={`text-lg font-bold ${item.esUsuario ? 'text-white' : 'text-gray-400'}`}>
-                  {item.visitas}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
