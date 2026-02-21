@@ -1,11 +1,16 @@
 // ============================================================================
-// public/sw.js — Service Worker para Field Tracker TAT
+// public/sw.js — Service Worker DSRoute
+// ✅ Auto-detección de nueva versión
+// ✅ Notifica al asesor cuando hay actualización disponible
+// ✅ Soporte offline intacto
 // ============================================================================
 
-const CACHE_NAME = 'tat-v1'
-const OFFLINE_QUEUE = 'tat-offline-visitas'
+// ⚠️ IMPORTANTE: Cambia este número cada vez que hagas deploy
+// Esto fuerza que todos los asesores reciban la actualización automáticamente
+const APP_VERSION = 'v9'
+const CACHE_NAME = `dsroute-${APP_VERSION}`
+const OFFLINE_QUEUE = 'dsroute-offline-visitas'
 
-// Assets que se cachean al instalar
 const STATIC_ASSETS = [
   '/',
   '/offline.html',
@@ -13,22 +18,43 @@ const STATIC_ASSETS = [
 
 // ── Instalación ──────────────────────────────────────────────────────────────
 self.addEventListener('install', (event) => {
+  console.log(`[SW] Instalando versión ${APP_VERSION}`)
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS))
   )
-  self.skipWaiting()
+  // NO llamar skipWaiting() aquí — esperar confirmación del usuario
 })
 
 // ── Activación ───────────────────────────────────────────────────────────────
 self.addEventListener('activate', (event) => {
+  console.log(`[SW] Activando versión ${APP_VERSION}`)
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
-        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+        keys
+          .filter(k => k !== CACHE_NAME && k !== OFFLINE_QUEUE)
+          .map(k => {
+            console.log(`[SW] Eliminando caché antigua: ${k}`)
+            return caches.delete(k)
+          })
       )
     )
   )
   self.clients.claim()
+})
+
+// ── Detectar nueva versión esperando ─────────────────────────────────────────
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') {
+    console.log(`[SW] Aplicando nueva versión ${APP_VERSION}`)
+    self.skipWaiting()
+  }
+  if (event.data?.type === 'SYNC_NOW') {
+    syncVisitas()
+  }
+  if (event.data?.type === 'GET_VERSION') {
+    event.source?.postMessage({ type: 'VERSION', version: APP_VERSION })
+  }
 })
 
 // ── Fetch: estrategia por tipo de request ────────────────────────────────────
@@ -36,13 +62,11 @@ self.addEventListener('fetch', (event) => {
   const { request } = event
   const url = new URL(request.url)
 
-  // API requests → Network first, fallback a respuesta vacía útil
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(networkFirstApi(request))
     return
   }
 
-  // Assets estáticos → Cache first
   if (
     request.destination === 'script' ||
     request.destination === 'style' ||
@@ -53,7 +77,6 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Navegación (páginas HTML) → Network first, fallback offline
   if (request.mode === 'navigate') {
     event.respondWith(navigationHandler(request))
     return
@@ -61,13 +84,10 @@ self.addEventListener('fetch', (event) => {
 })
 
 // ── Estrategias de caché ─────────────────────────────────────────────────────
-
-// Network first con fallback para APIs
 async function networkFirstApi(request) {
   try {
     const response = await fetch(request.clone())
     if (response.ok) {
-      // Cachear respuestas GET de clientes del día
       const url = new URL(request.url)
       if (
         request.method === 'GET' &&
@@ -80,11 +100,9 @@ async function networkFirstApi(request) {
     }
     return response
   } catch {
-    // Sin red → buscar en caché
     const cached = await caches.match(request)
     if (cached) return cached
 
-    // Si es un POST de checkin → encolar para sync
     if (request.method === 'POST' && request.url.includes('/api/checkin')) {
       await enqueueOfflineVisita(request)
       return new Response(
@@ -100,7 +118,6 @@ async function networkFirstApi(request) {
   }
 }
 
-// Cache first para assets
 async function cacheFirst(request) {
   const cached = await caches.match(request)
   if (cached) return cached
@@ -116,7 +133,6 @@ async function cacheFirst(request) {
   }
 }
 
-// Navegación con fallback
 async function navigationHandler(request) {
   try {
     const response = await fetch(request)
@@ -186,13 +202,12 @@ async function syncVisitas() {
       })
       if (!res.ok) pendientes.push(item)
     } catch {
-      pendientes.push(item) // Reintentar después
+      pendientes.push(item)
     }
   }
 
   await saveOfflineQueue(pendientes)
 
-  // Notificar a todos los clientes que se sincronizó
   const clients = await self.clients.matchAll()
   clients.forEach(client => {
     client.postMessage({
@@ -202,13 +217,3 @@ async function syncVisitas() {
     })
   })
 }
-
-// Escuchar mensajes de la app
-self.addEventListener('message', (event) => {
-  if (event.data?.type === 'SKIP_WAITING') {
-    self.skipWaiting()
-  }
-  if (event.data?.type === 'SYNC_NOW') {
-    syncVisitas()
-  }
-})
