@@ -3,15 +3,16 @@
 // ============================================================================
 // components/supervisor/supervisor-layout.tsx — MÓVIL FIRST
 // ✅ Todo lo anterior +
-// ✅ Reporte por días en perfil de cada asesor
-// ✅ Tabla: día, visitas, pedidos, vendido
+// ✅ Foto de visita visible en perfil de asesor
+// ✅ Reporte por días
 // ============================================================================
 
 import { useState } from "react"
 import useSWR from "swr"
 import {
   Users, AlertTriangle, FileText, ChevronLeft, ChevronRight,
-  Loader2, Check, TrendingUp, Eye, ShoppingBag, DollarSign
+  Loader2, Check, TrendingUp, Eye, ShoppingBag, DollarSign,
+  ImageIcon, Camera
 } from "lucide-react"
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
@@ -126,7 +127,7 @@ export function SupervisorLayout({ onBack }: SupervisorLayoutProps) {
           <>
             {tab === "equipo"   && <EquipoView   data={data} />}
             {tab === "alertas"  && <AlertasView  data={data} />}
-            {tab === "reportes" && <ReportesView />}
+            {tab === "reportes" && <ReportesView data={data} />}
           </>
         )}
       </div>
@@ -191,10 +192,11 @@ function EquipoView({ data }: { data: any }) {
 }
 
 // ============================================================================
-// PERFIL ASESOR — con reporte por días
+// PERFIL ASESOR — con foto en visitas y reporte por días
 // ============================================================================
 function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
   const fecha = fechaColombia()
+  const [fotoAmpliada, setFotoAmpliada] = useState<string | null>(null)
 
   const hace7Dias = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)
     .toLocaleString('en-CA', { timeZone: 'America/Bogota' })
@@ -212,7 +214,6 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
     { refreshInterval: 60000 }
   )
 
-  // Construir reporte de los últimos 7 días
   const reporteDias = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000)
     const fechaStr = d.toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
@@ -229,6 +230,24 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
 
   return (
     <div className="p-4 space-y-4">
+
+      {/* Foto ampliada modal */}
+      {fotoAmpliada && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90"
+          onClick={() => setFotoAmpliada(null)}
+        >
+          <div className="relative w-full max-w-lg px-4">
+            <img src={fotoAmpliada} alt="Foto visita" className="w-full rounded-2xl object-contain max-h-[80vh]" />
+            <button
+              className="absolute top-2 right-6 flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-white"
+              onClick={() => setFotoAmpliada(null)}
+            >✕</button>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
       <div className="flex items-center gap-3">
         <button onClick={onBack} className="flex h-9 w-9 items-center justify-center rounded-xl bg-dark-surface text-gray-400">
           <ChevronLeft className="h-5 w-5" />
@@ -253,9 +272,7 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl bg-dark-surface border border-white/10 p-4 text-center">
               <p className="text-xs text-gray-500">Visitas hoy</p>
-              <p className="text-2xl font-bold text-white">
-                {data.metricas?.visitas?.total ?? 0}
-              </p>
+              <p className="text-2xl font-bold text-white">{data.metricas?.visitas?.total ?? 0}</p>
             </div>
             <div className="rounded-xl bg-dark-surface border border-white/10 p-4 text-center">
               <p className="text-xs text-gray-500">Validadas</p>
@@ -271,46 +288,28 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
             </div>
           </div>
 
-          {/* Reporte por días */}
+          {/* Reporte 7 días */}
           <div>
             <h3 className="text-sm font-semibold text-white mb-3">Últimos 7 días</h3>
             <div className="rounded-xl bg-dark-surface border border-white/10 overflow-hidden">
-              {/* Header */}
               <div className="grid grid-cols-4 gap-1 px-3 py-2 border-b border-white/10 bg-white/5">
                 <p className="text-[10px] text-gray-500 font-medium">Día</p>
-                <p className="text-[10px] text-gray-500 font-medium text-center">
-                  <Eye className="h-3 w-3 inline" /> Vis.
-                </p>
-                <p className="text-[10px] text-gray-500 font-medium text-center">
-                  <ShoppingBag className="h-3 w-3 inline" /> Ped.
-                </p>
-                <p className="text-[10px] text-gray-500 font-medium text-right">
-                  <DollarSign className="h-3 w-3 inline" /> Venta
-                </p>
+                <p className="text-[10px] text-gray-500 font-medium text-center"><Eye className="h-3 w-3 inline" /> Vis.</p>
+                <p className="text-[10px] text-gray-500 font-medium text-center"><ShoppingBag className="h-3 w-3 inline" /> Ped.</p>
+                <p className="text-[10px] text-gray-500 font-medium text-right"><DollarSign className="h-3 w-3 inline" /> Venta</p>
               </div>
-              {/* Filas */}
               {reporteDias.map((dia, i) => (
-                <div
-                  key={i}
-                  className={`grid grid-cols-4 gap-1 px-3 py-2.5 border-b border-white/5 last:border-0 ${
-                    dia.esHoy ? 'bg-navy-accent/10' : ''
-                  }`}
-                >
+                <div key={i} className={`grid grid-cols-4 gap-1 px-3 py-2.5 border-b border-white/5 last:border-0 ${dia.esHoy ? 'bg-navy-accent/10' : ''}`}>
                   <p className={`text-xs font-medium ${dia.esHoy ? 'text-navy-accent' : 'text-white'}`}>
                     {dia.esHoy ? 'Hoy' : formatFecha(dia.fecha)}
                   </p>
-                  <p className={`text-sm font-bold text-center ${dia.visitas > 0 ? 'text-white' : 'text-gray-600'}`}>
-                    {dia.visitas}
-                  </p>
-                  <p className={`text-sm font-bold text-center ${dia.pedidos > 0 ? 'text-success' : 'text-gray-600'}`}>
-                    {dia.pedidos}
-                  </p>
+                  <p className={`text-sm font-bold text-center ${dia.visitas > 0 ? 'text-white' : 'text-gray-600'}`}>{dia.visitas}</p>
+                  <p className={`text-sm font-bold text-center ${dia.pedidos > 0 ? 'text-success' : 'text-gray-600'}`}>{dia.pedidos}</p>
                   <p className={`text-xs font-bold text-right ${dia.vendido > 0 ? 'text-white' : 'text-gray-600'}`}>
                     {dia.vendido > 0 ? dia.vendido_formato : '—'}
                   </p>
                 </div>
               ))}
-              {/* Total semana */}
               <div className="grid grid-cols-4 gap-1 px-3 py-2.5 bg-white/5 border-t border-white/10">
                 <p className="text-xs font-bold text-white">Total</p>
                 <p className="text-sm font-bold text-center text-white">{semanaData?.totales?.visitas ?? 0}</p>
@@ -320,7 +319,7 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
             </div>
           </div>
 
-          {/* Historial visitas hoy */}
+          {/* Visitas del día con foto */}
           {(data.visitas?.length ?? 0) > 0 && (
             <div className="rounded-xl bg-dark-surface border border-white/10 overflow-hidden">
               <p className="px-4 py-3 text-sm font-semibold text-white border-b border-white/10">
@@ -328,23 +327,57 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
               </p>
               <div className="divide-y divide-white/5">
                 {data.visitas.map((v: any) => (
-                  <div key={v.id} className="flex items-center gap-3 px-4 py-3">
-                    <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${v.ubicacion?.validada ? 'bg-success/20' : 'bg-warning/20'}`}>
-                      {v.ubicacion?.validada
-                        ? <Check className="h-3.5 w-3.5 text-success" />
-                        : <AlertTriangle className="h-3.5 w-3.5 text-warning" />
-                      }
+                  <div key={v.id} className="px-4 py-3 space-y-2">
+                    <div className="flex items-center gap-3">
+                      <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${v.ubicacion?.validada ? 'bg-success/20' : 'bg-warning/20'}`}>
+                        {v.ubicacion?.validada
+                          ? <Check className="h-3.5 w-3.5 text-success" />
+                          : <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-white truncate">{v.cliente?.nombre}</p>
+                        <p className="text-[10px] text-gray-500 truncate">{v.cliente?.direccion}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-xs font-mono text-gray-400">{v.hora}</p>
+                        {v.pedido?.hubo_pedido && (
+                          <p className="text-xs text-success font-medium">{v.pedido?.valor_formato}</p>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-white truncate">{v.cliente?.nombre}</p>
-                      <p className="text-[10px] text-gray-500 truncate">{v.cliente?.direccion}</p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-xs font-mono text-gray-400">{v.hora}</p>
-                      {v.pedido?.hubo_pedido && (
-                        <p className="text-xs text-success font-medium">{v.pedido?.valor_formato}</p>
-                      )}
-                    </div>
+
+                    {/* Foto de la visita */}
+                    {v.foto_url ? (
+                      <button
+                        onClick={() => setFotoAmpliada(v.foto_url)}
+                        className="w-full rounded-xl overflow-hidden border border-white/10 relative group"
+                      >
+                        <img
+                          src={v.foto_url}
+                          alt="Foto visita"
+                          className="w-full object-cover h-32"
+                        />
+                        <div className="absolute inset-0 bg-black/0 group-active:bg-black/20 transition-colors flex items-center justify-center">
+                          <div className="opacity-0 group-active:opacity-100 bg-black/50 rounded-full p-2">
+                            <ImageIcon className="h-5 w-5 text-white" />
+                          </div>
+                        </div>
+                        <div className="absolute bottom-2 right-2 bg-black/50 rounded-lg px-2 py-0.5">
+                          <p className="text-[10px] text-white">Toca para ampliar</p>
+                        </div>
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-2 rounded-xl bg-white/5 border border-white/5 px-3 py-2">
+                        <Camera className="h-3.5 w-3.5 text-gray-600 shrink-0" />
+                        <p className="text-[10px] text-gray-600">Sin foto en esta visita</p>
+                      </div>
+                    )}
+
+                    {/* Notas */}
+                    {v.notas && (
+                      <p className="text-[10px] text-gray-500 italic px-1">"{v.notas}"</p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -369,7 +402,6 @@ function AlertasView({ data }: { data: any }) {
       <p className="text-xs text-gray-500">
         {alertas.length > 0 ? `${alertas.length} alertas requieren atención` : 'Sin alertas por ahora'}
       </p>
-
       {alertas.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center rounded-xl bg-dark-surface border border-white/10">
           <Check className="h-10 w-10 text-success mb-3" />
@@ -397,27 +429,82 @@ function AlertasView({ data }: { data: any }) {
 // ============================================================================
 // REPORTES
 // ============================================================================
-function ReportesView() {
+function ReportesView({ data }: { data: any }) {
+  const fecha = fechaColombia()
+  const equipo = data?.equipo ?? []
+
+  const descargarReporteDiario = () => {
+    if (!equipo.length) return
+    const filas = [
+      ['Asesor', 'Zona', 'Visitas hoy', 'Clientes asignados', 'Cumplimiento %'],
+      ...equipo.map((a: any) => [
+        a.nombre,
+        a.zona || '—',
+        a.visitas_hoy,
+        a.clientes_asignados,
+        `${a.cumplimiento}%`
+      ])
+    ]
+    descargarCSV(filas, `reporte-diario-${fecha}.csv`)
+  }
+
   return (
     <div className="p-4 space-y-3">
       <p className="text-xs text-gray-500">Genera y descarga reportes de tu equipo</p>
       <div className="grid grid-cols-2 gap-3">
-        {[
-          { title: "Reporte Diario",   desc: "Visitas del día" },
-          { title: "Reporte Semanal",  desc: "Rendimiento semanal" },
-          { title: "Cumplimiento TAT", desc: "% visitados vs plan" },
-          { title: "Incidencias",      desc: "Visitas sospechosas" },
-        ].map(r => (
-          <div key={r.title} className="flex flex-col rounded-xl bg-dark-surface border border-white/10 p-4">
-            <FileText className="mb-2 h-6 w-6 text-navy-accent" />
-            <p className="text-sm font-semibold text-white">{r.title}</p>
-            <p className="text-xs text-gray-500 mb-3">{r.desc}</p>
-            <button className="mt-auto rounded-lg bg-navy-accent px-3 py-2 text-xs font-semibold text-white hover:bg-navy-accent/80 transition-colors">
-              Generar
-            </button>
-          </div>
-        ))}
+        <button
+          onClick={descargarReporteDiario}
+          className="flex flex-col rounded-xl bg-dark-surface border border-white/10 p-4 text-left hover:border-navy-accent/50 transition-all active:scale-[0.98]"
+        >
+          <FileText className="mb-2 h-6 w-6 text-navy-accent" />
+          <p className="text-sm font-semibold text-white">Reporte Diario</p>
+          <p className="text-xs text-gray-500 mb-3">Visitas del día</p>
+          <span className="mt-auto rounded-lg bg-navy-accent px-3 py-2 text-xs font-semibold text-white text-center">
+            Descargar CSV
+          </span>
+        </button>
+
+        <div className="flex flex-col rounded-xl bg-dark-surface border border-white/10 p-4 opacity-50">
+          <FileText className="mb-2 h-6 w-6 text-gray-500" />
+          <p className="text-sm font-semibold text-white">Reporte Semanal</p>
+          <p className="text-xs text-gray-500 mb-3">Próximamente</p>
+          <span className="mt-auto rounded-lg bg-gray-700 px-3 py-2 text-xs font-semibold text-gray-400 text-center">
+            Pronto
+          </span>
+        </div>
+
+        <div className="flex flex-col rounded-xl bg-dark-surface border border-white/10 p-4 opacity-50">
+          <FileText className="mb-2 h-6 w-6 text-gray-500" />
+          <p className="text-sm font-semibold text-white">Cumplimiento TAT</p>
+          <p className="text-xs text-gray-500 mb-3">Próximamente</p>
+          <span className="mt-auto rounded-lg bg-gray-700 px-3 py-2 text-xs font-semibold text-gray-400 text-center">
+            Pronto
+          </span>
+        </div>
+
+        <div className="flex flex-col rounded-xl bg-dark-surface border border-white/10 p-4 opacity-50">
+          <FileText className="mb-2 h-6 w-6 text-gray-500" />
+          <p className="text-sm font-semibold text-white">Incidencias</p>
+          <p className="text-xs text-gray-500 mb-3">Próximamente</p>
+          <span className="mt-auto rounded-lg bg-gray-700 px-3 py-2 text-xs font-semibold text-gray-400 text-center">
+            Pronto
+          </span>
+        </div>
       </div>
     </div>
   )
+}
+
+// ── Helper CSV ────────────────────────────────────────────────────────────────
+function descargarCSV(filas: any[][], nombreArchivo: string) {
+  const contenido = filas
+    .map(fila => fila.map(celda => `"${String(celda).replace(/"/g, '""')}"`).join(','))
+    .join('\n')
+  const blob = new Blob(['\uFEFF' + contenido], { type: 'text/csv;charset=utf-8;' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href     = url
+  a.download = nombreArchivo
+  a.click()
+  URL.revokeObjectURL(url)
 }
