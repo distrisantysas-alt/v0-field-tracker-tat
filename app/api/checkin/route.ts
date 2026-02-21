@@ -10,6 +10,7 @@
 // ✅ Prevención de duplicados
 // ✅ Logs detallados
 // ✅ Zona horaria: Colombia (America/Bogota)
+// ✅ Foto de visita (foto_url desde Cloudinary)
 // ============================================================================
 
 import { sql } from '@/lib/db';
@@ -35,7 +36,8 @@ export async function POST(req: NextRequest) {
       notas, 
       offline_id,
       hubo_pedido,
-      valor_pedido 
+      valor_pedido,
+      foto_url,        // ✅ NUEVO: URL de foto subida a Cloudinary
     } = body;
 
     console.log('📍 Checkin request recibido:', { 
@@ -45,6 +47,7 @@ export async function POST(req: NextRequest) {
       lng, 
       hubo_pedido,
       valor_pedido,
+      foto_url: foto_url ? '✓ con foto' : 'sin foto',
       offline_id: offline_id || 'ninguno' 
     });
 
@@ -191,7 +194,6 @@ export async function POST(req: NextRequest) {
       
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       
-      // Mensaje específico si la función no existe
       if (errorMsg.includes('does not exist') || errorMsg.includes('function')) {
         return NextResponse.json(
           { 
@@ -229,7 +231,8 @@ export async function POST(req: NextRequest) {
         offline_id,
         synced,
         hubo_pedido,
-        valor_pedido
+        valor_pedido,
+        foto_url
       ) VALUES (
         ${asesor_id}, 
         ${cliente_id},
@@ -241,13 +244,14 @@ export async function POST(req: NextRequest) {
         ${offline_id ?? null},
         ${offline_id ? false : true},
         ${huboPedidoBool},
-        ${valorPedidoNum}
+        ${valorPedidoNum},
+        ${foto_url ?? null}
       )
       RETURNING *
     `;
 
     const visita = visitas[0];
-    console.log('💾 Visita registrada con ID:', visita.id);
+    console.log('💾 Visita registrada con ID:', visita.id, foto_url ? '📷 con foto' : '');
 
     // ========================================
     // MARCAR RUTA COMO COMPLETADA
@@ -289,6 +293,7 @@ export async function POST(req: NextRequest) {
       `Asesor ${asesor_id} → Cliente ${cliente.codigo} (${cliente.nombre})`,
       `Distancia: ${Math.round(distanciaMetros)}m`,
       mensajePedido,
+      foto_url ? '📷 foto incluida' : '',
       offline_id ? `[OFFLINE: ${offline_id}]` : '[ONLINE]'
     );
 
@@ -305,6 +310,7 @@ export async function POST(req: NextRequest) {
         validada,
         hubo_pedido: huboPedidoBool,
         valor_pedido: valorPedidoNum,
+        foto_url: foto_url ?? null,
         timestamp: visita.timestamp,
       },
       mensajes: {
@@ -396,9 +402,9 @@ export async function GET() {
     methods: ['POST', 'PATCH'],
     campos_requeridos: {
       POST: ['asesor_id', 'cliente_id', 'lat', 'lng'],
-      POST_opcional: ['notas', 'offline_id', 'hubo_pedido', 'valor_pedido'],
+      POST_opcional: ['notas', 'offline_id', 'hubo_pedido', 'valor_pedido', 'foto_url'],
       PATCH: ['offline_id']
     },
-    version: '3.0'
+    version: '3.1'
   });
 }
