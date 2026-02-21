@@ -8,7 +8,8 @@
 // - Monto total vendido
 // - Promedio por pedido
 // - Lista detallada de visitas
-// ✅ Zona horaria: Colombia (America/Bogota)
+// ✅ Zona horaria: Colombia (America/Bogota) — unificada en todos los queries
+// ✅ foto_url incluida en visitas
 // ============================================================================
 
 import { sql } from '@/lib/db';
@@ -94,7 +95,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Validación
+    // Validación (segunda instancia preservada del original)
     if (!asesor_id) {
       return NextResponse.json(
         { error: 'asesor_id es requerido' },
@@ -137,13 +138,14 @@ export async function GET(req: NextRequest) {
         MAX(timestamp) as ultima_visita
       FROM visitas
       WHERE asesor_id = ${asesor_id}
-        AND DATE(timestamp) = ${fecha}::date
+        AND DATE(timestamp AT TIME ZONE 'America/Bogota') = ${fecha}::date
     `;
 
     const resumen = resumenResult[0];
 
     // ========================================
     // LISTA DETALLADA DE VISITAS
+    // ✅ Incluye foto_url
     // ========================================
     const visitas = await sql`
       SELECT 
@@ -160,11 +162,12 @@ export async function GET(req: NextRequest) {
         v.valor_pedido,
         v.notas,
         v.offline_id,
-        v.synced
+        v.synced,
+        v.foto_url
       FROM visitas v
       JOIN clientes c ON v.cliente_id = c.id
       WHERE v.asesor_id = ${asesor_id}
-        AND DATE(v.timestamp) = ${fecha}::date
+        AND DATE(v.timestamp AT TIME ZONE 'America/Bogota') = ${fecha}::date
       ORDER BY v.timestamp ASC
     `;
 
@@ -256,6 +259,7 @@ export async function GET(req: NextRequest) {
       visitas: visitas.map(v => ({
         id: v.id,
         hora: new Date(v.timestamp).toLocaleTimeString('es-CO', { 
+          timeZone: 'America/Bogota',
           hour: '2-digit', 
           minute: '2-digit' 
         }),
@@ -278,6 +282,7 @@ export async function GET(req: NextRequest) {
             ? `$${parseFloat(v.valor_pedido).toLocaleString('es-CO')}` 
             : '$0'
         },
+        foto_url: v.foto_url ?? null,
         notas: v.notas,
         sincronizada: v.synced
       }))
@@ -322,16 +327,16 @@ export async function POST(req: NextRequest) {
     // Resumen por rango de fechas
     const resumen = await sql`
       SELECT 
-        DATE(timestamp) as fecha,
+        DATE(timestamp AT TIME ZONE 'America/Bogota') as fecha,
         COUNT(*) as total_visitas,
         COUNT(*) FILTER (WHERE validada = true) as visitas_validadas,
         COUNT(*) FILTER (WHERE hubo_pedido = true) as pedidos_efectivos,
         COALESCE(SUM(valor_pedido), 0) as total_vendido
       FROM visitas
       WHERE asesor_id = ${asesor_id}
-        AND DATE(timestamp) BETWEEN ${fecha_inicio}::date AND ${fecha_fin}::date
-      GROUP BY DATE(timestamp)
-      ORDER BY DATE(timestamp) DESC
+        AND DATE(timestamp AT TIME ZONE 'America/Bogota') BETWEEN ${fecha_inicio}::date AND ${fecha_fin}::date
+      GROUP BY DATE(timestamp AT TIME ZONE 'America/Bogota')
+      ORDER BY DATE(timestamp AT TIME ZONE 'America/Bogota') DESC
     `;
 
     // Totales del periodo
@@ -342,7 +347,7 @@ export async function POST(req: NextRequest) {
         COALESCE(SUM(valor_pedido), 0) as total_vendido
       FROM visitas
       WHERE asesor_id = ${asesor_id}
-        AND DATE(timestamp) BETWEEN ${fecha_inicio}::date AND ${fecha_fin}::date
+        AND DATE(timestamp AT TIME ZONE 'America/Bogota') BETWEEN ${fecha_inicio}::date AND ${fecha_fin}::date
     `;
 
     return NextResponse.json({
