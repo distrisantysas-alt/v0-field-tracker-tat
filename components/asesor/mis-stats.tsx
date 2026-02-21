@@ -4,11 +4,12 @@
 // components/asesor/mis-stats.tsx
 // ✅ Ranking real desde la base de datos (solo asesores activos)
 // ✅ Gráfico semanal real
-// ✅ Métricas reales
+// ✅ Reporte por días: visitas, pedidos, vendido
+// ✅ Fix zona horaria unificada
 // ============================================================================
 
 import useSWR from 'swr';
-import { Flame, Trophy, TrendingUp, Loader2 } from 'lucide-react';
+import { Flame, Trophy, TrendingUp, Loader2, ShoppingBag, Eye, DollarSign } from 'lucide-react';
 import { type AsesorSession } from './login-asesor';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
@@ -18,6 +19,7 @@ interface DiaStats {
   visitas: number;
   pedidos: number;
   vendido: number;
+  vendido_formato: string;
 }
 
 interface MisStatsProps {
@@ -28,6 +30,16 @@ function getInitials(nombre: string) {
   return nombre.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
 }
 
+function formatFecha(fechaStr: string): string {
+  const fecha = new Date(fechaStr + 'T00:00:00')
+  return fecha.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
+function esHoy(fechaStr: string): boolean {
+  const hoy = new Date().toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
+  return fechaStr === hoy
+}
+
 export function MisStats({ asesor }: MisStatsProps) {
   const ASESOR_ID = asesor.id;
 
@@ -35,7 +47,7 @@ export function MisStats({ asesor }: MisStatsProps) {
     timeZone: 'America/Bogota'
   }).split(',')[0];
 
-  const hace7Dias = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  const hace7Dias = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)
     .toLocaleString('en-CA', { timeZone: 'America/Bogota' })
     .split(',')[0];
 
@@ -90,14 +102,14 @@ export function MisStats({ asesor }: MisStatsProps) {
   const racha = calcularRacha();
 
   const diasSemana = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
-  const visitasPorDia = data.por_dia || [];
+  const visitasPorDia: DiaStats[] = data.por_dia || [];
 
   const ultimos7Dias = Array.from({ length: 7 }, (_, i) => {
     const fecha = new Date(Date.now() - (6 - i) * 24 * 60 * 60 * 1000);
     const fechaStr = fecha.toLocaleString('en-CA', {
       timeZone: 'America/Bogota'
     }).split(',')[0];
-    const diaData = visitasPorDia.find((d: DiaStats) => d.fecha === fechaStr);
+    const diaData = visitasPorDia.find((d: DiaStats) => d.fecha?.toString().startsWith(fechaStr));
     const diaSemana = diasSemana[fecha.getDay() === 0 ? 6 : fecha.getDay() - 1];
     return {
       dia: diaSemana,
@@ -108,7 +120,7 @@ export function MisStats({ asesor }: MisStatsProps) {
 
   const maxVisitas = Math.max(...ultimos7Dias.map(d => d.visitas), 1);
 
-  // Ranking real con posición del asesor actual
+  // Ranking real
   const rankingReal: { id: string; nombre: string; visitas: number; esUsuario: boolean }[] =
     rankingData?.ranking
       ? rankingData.ranking.map((r: any) => ({
@@ -119,7 +131,6 @@ export function MisStats({ asesor }: MisStatsProps) {
         }))
       : [];
 
-  // Si el asesor no aparece aún (0 visitas), lo agrego al final
   const asesorEnRanking = rankingReal.find(r => r.esUsuario)
   if (!asesorEnRanking) {
     rankingReal.push({
@@ -131,6 +142,20 @@ export function MisStats({ asesor }: MisStatsProps) {
   }
 
   const posicion = rankingReal.findIndex(r => r.esUsuario) + 1;
+
+  // Reporte por días — ordenado más reciente primero
+  const reporteDias: DiaStats[] = Array.from({ length: 7 }, (_, i) => {
+    const fecha = new Date(Date.now() - i * 24 * 60 * 60 * 1000)
+    const fechaStr = fecha.toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
+    const diaData = visitasPorDia.find(d => d.fecha?.toString().startsWith(fechaStr))
+    return {
+      fecha: fechaStr,
+      visitas:          diaData?.visitas  ?? 0,
+      pedidos:          diaData?.pedidos  ?? 0,
+      vendido:          diaData?.vendido  ?? 0,
+      vendido_formato:  diaData?.vendido_formato ?? '$0',
+    }
+  })
 
   return (
     <div className="flex flex-col min-h-screen bg-dark-bg overflow-y-auto pb-20">
@@ -187,7 +212,7 @@ export function MisStats({ asesor }: MisStatsProps) {
         </div>
       </div>
 
-      {/* Métricas de ventas */}
+      {/* Métricas de ventas semana */}
       <div className="px-4 mb-4">
         <div className="bg-gradient-to-br from-navy to-navy-accent rounded-xl p-4 border border-white/10">
           <div className="flex items-center gap-2 mb-3">
@@ -207,6 +232,57 @@ export function MisStats({ asesor }: MisStatsProps) {
               <p className="text-xs text-white/60">Total vendido</p>
               <p className="text-2xl font-bold text-white">{data.totales?.vendido_formato ?? '$0'}</p>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── REPORTE POR DÍAS ── */}
+      <div className="px-4 mb-4">
+        <h2 className="text-white font-semibold mb-3">Detalle por día</h2>
+        <div className="rounded-xl bg-dark-surface border border-white/10 overflow-hidden">
+          {/* Header tabla */}
+          <div className="grid grid-cols-4 gap-2 px-4 py-2 border-b border-white/10 bg-white/5">
+            <p className="text-[10px] text-gray-500 font-medium">Día</p>
+            <p className="text-[10px] text-gray-500 font-medium text-center">
+              <Eye className="h-3 w-3 inline mr-0.5" />Visitas
+            </p>
+            <p className="text-[10px] text-gray-500 font-medium text-center">
+              <ShoppingBag className="h-3 w-3 inline mr-0.5" />Pedidos
+            </p>
+            <p className="text-[10px] text-gray-500 font-medium text-right">
+              <DollarSign className="h-3 w-3 inline mr-0.5" />Vendido
+            </p>
+          </div>
+          {/* Filas */}
+          {reporteDias.map((dia, i) => (
+            <div
+              key={i}
+              className={`grid grid-cols-4 gap-2 px-4 py-3 border-b border-white/5 last:border-0 ${
+                esHoy(dia.fecha) ? 'bg-navy-accent/10' : ''
+              }`}
+            >
+              <div>
+                <p className={`text-xs font-medium ${esHoy(dia.fecha) ? 'text-navy-accent' : 'text-white'}`}>
+                  {esHoy(dia.fecha) ? 'Hoy' : formatFecha(dia.fecha)}
+                </p>
+              </div>
+              <p className={`text-sm font-bold text-center ${dia.visitas > 0 ? 'text-white' : 'text-gray-600'}`}>
+                {dia.visitas}
+              </p>
+              <p className={`text-sm font-bold text-center ${dia.pedidos > 0 ? 'text-success' : 'text-gray-600'}`}>
+                {dia.pedidos}
+              </p>
+              <p className={`text-xs font-bold text-right ${dia.vendido > 0 ? 'text-white' : 'text-gray-600'}`}>
+                {dia.vendido > 0 ? dia.vendido_formato : '—'}
+              </p>
+            </div>
+          ))}
+          {/* Total */}
+          <div className="grid grid-cols-4 gap-2 px-4 py-3 bg-white/5 border-t border-white/10">
+            <p className="text-xs font-bold text-white">Total</p>
+            <p className="text-sm font-bold text-center text-white">{data.totales?.visitas ?? 0}</p>
+            <p className="text-sm font-bold text-center text-success">{data.totales?.pedidos ?? 0}</p>
+            <p className="text-xs font-bold text-right text-white">{data.totales?.vendido_formato ?? '$0'}</p>
           </div>
         </div>
       </div>
@@ -237,7 +313,6 @@ export function MisStats({ asesor }: MisStatsProps) {
                     : 'bg-dark-surface border border-white/10'
                 }`}
               >
-                {/* Posición */}
                 <div className={`flex items-center justify-center w-7 h-7 rounded-full text-sm font-bold shrink-0 ${
                   index === 0 ? 'bg-yellow-500 text-black' :
                   index === 1 ? 'bg-gray-300 text-black' :
@@ -247,17 +322,14 @@ export function MisStats({ asesor }: MisStatsProps) {
                 }`}>
                   {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
                 </div>
-                {/* Avatar con iniciales */}
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-bold text-white">
                   {getInitials(item.nombre.replace(' (tú)', ''))}
                 </div>
-                {/* Nombre */}
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm font-medium truncate ${item.esUsuario ? 'text-white' : 'text-gray-300'}`}>
                     {item.nombre}
                   </p>
                 </div>
-                {/* Visitas */}
                 <div className="text-right shrink-0">
                   <p className={`text-lg font-bold ${item.esUsuario ? 'text-white' : 'text-gray-400'}`}>
                     {item.visitas}
