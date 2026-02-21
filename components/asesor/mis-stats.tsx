@@ -5,11 +5,16 @@
 // ✅ Ranking real desde la base de datos (solo asesores activos)
 // ✅ Gráfico semanal real
 // ✅ Reporte por días: visitas, pedidos, vendido
+// ✅ Lista de visitas de hoy con cliente, hora, estado y pedido
 // ✅ Fix zona horaria unificada
 // ============================================================================
 
+import { useState } from 'react';
 import useSWR from 'swr';
-import { Flame, Trophy, TrendingUp, Loader2, ShoppingBag, Eye, DollarSign } from 'lucide-react';
+import {
+  Flame, Trophy, TrendingUp, Loader2, ShoppingBag,
+  Eye, DollarSign, Check, AlertTriangle, Clock, ChevronDown, ChevronUp
+} from 'lucide-react';
 import { type AsesorSession } from './login-asesor';
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
@@ -42,6 +47,7 @@ function esHoy(fechaStr: string): boolean {
 
 export function MisStats({ asesor }: MisStatsProps) {
   const ASESOR_ID = asesor.id;
+  const [mostrarVisitas, setMostrarVisitas] = useState(true);
 
   const hoy = new Date().toLocaleString('en-CA', {
     timeZone: 'America/Bogota'
@@ -106,9 +112,7 @@ export function MisStats({ asesor }: MisStatsProps) {
 
   const ultimos7Dias = Array.from({ length: 7 }, (_, i) => {
     const fecha = new Date(Date.now() - (6 - i) * 24 * 60 * 60 * 1000);
-    const fechaStr = fecha.toLocaleString('en-CA', {
-      timeZone: 'America/Bogota'
-    }).split(',')[0];
+    const fechaStr = fecha.toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0];
     const diaData = visitasPorDia.find((d: DiaStats) => d.fecha?.toString().startsWith(fechaStr));
     const diaSemana = diasSemana[fecha.getDay() === 0 ? 6 : fecha.getDay() - 1];
     return {
@@ -150,12 +154,15 @@ export function MisStats({ asesor }: MisStatsProps) {
     const diaData = visitasPorDia.find(d => d.fecha?.toString().startsWith(fechaStr))
     return {
       fecha: fechaStr,
-      visitas:          diaData?.visitas  ?? 0,
-      pedidos:          diaData?.pedidos  ?? 0,
-      vendido:          diaData?.vendido  ?? 0,
-      vendido_formato:  diaData?.vendido_formato ?? '$0',
+      visitas:         diaData?.visitas  ?? 0,
+      pedidos:         diaData?.pedidos  ?? 0,
+      vendido:         diaData?.vendido  ?? 0,
+      vendido_formato: diaData?.vendido_formato ?? '$0',
     }
   })
+
+  // Visitas de hoy
+  const visitasHoy: any[] = hoyData?.visitas ?? []
 
   return (
     <div className="flex flex-col min-h-screen bg-dark-bg overflow-y-auto pb-20">
@@ -234,6 +241,80 @@ export function MisStats({ asesor }: MisStatsProps) {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ── VISITAS DE HOY ── */}
+      <div className="px-4 mb-4">
+        <button
+          onClick={() => setMostrarVisitas(!mostrarVisitas)}
+          className="flex w-full items-center justify-between mb-3"
+        >
+          <h2 className="text-white font-semibold">
+            Visitas de hoy
+            {visitasHoy.length > 0 && (
+              <span className="ml-2 rounded-full bg-navy-accent/30 text-navy-accent text-xs font-bold px-2 py-0.5">
+                {visitasHoy.length}
+              </span>
+            )}
+          </h2>
+          {mostrarVisitas
+            ? <ChevronUp className="h-4 w-4 text-gray-400" />
+            : <ChevronDown className="h-4 w-4 text-gray-400" />
+          }
+        </button>
+
+        {mostrarVisitas && (
+          visitasHoy.length === 0 ? (
+            <div className="rounded-xl bg-dark-surface border border-white/10 px-4 py-8 text-center">
+              <Clock className="h-8 w-8 text-gray-600 mx-auto mb-2" />
+              <p className="text-sm text-gray-500">Aún no has registrado visitas hoy</p>
+            </div>
+          ) : (
+            <div className="rounded-xl bg-dark-surface border border-white/10 overflow-hidden">
+              <div className="divide-y divide-white/5">
+                {visitasHoy.map((v: any) => (
+                  <div key={v.id} className="flex items-center gap-3 px-4 py-3">
+                    {/* Ícono estado */}
+                    <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                      v.ubicacion?.validada ? 'bg-success/20' : 'bg-warning/20'
+                    }`}>
+                      {v.ubicacion?.validada
+                        ? <Check className="h-4 w-4 text-success" />
+                        : <AlertTriangle className="h-4 w-4 text-warning" />
+                      }
+                    </div>
+                    {/* Info cliente */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white truncate">{v.cliente?.nombre}</p>
+                      <p className="text-[10px] text-gray-500 truncate">{v.cliente?.direccion}</p>
+                      {v.notas && (
+                        <p className="text-[10px] text-gray-600 italic truncate">"{v.notas}"</p>
+                      )}
+                    </div>
+                    {/* Hora y pedido */}
+                    <div className="text-right shrink-0">
+                      <p className="text-xs font-mono text-gray-400">{v.hora}</p>
+                      {v.pedido?.hubo_pedido ? (
+                        <p className="text-xs font-bold text-success">{v.pedido.valor_formato}</p>
+                      ) : (
+                        <p className="text-[10px] text-gray-600">Sin pedido</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Total del día */}
+              {hoyData?.metricas?.pedidos?.efectivos > 0 && (
+                <div className="flex items-center justify-between px-4 py-3 bg-white/5 border-t border-white/10">
+                  <p className="text-xs font-semibold text-white">Total vendido hoy</p>
+                  <p className="text-sm font-bold text-success">
+                    {hoyData.metricas.pedidos.total_vendido_formato}
+                  </p>
+                </div>
+              )}
+            </div>
+          )
+        )}
       </div>
 
       {/* ── REPORTE POR DÍAS ── */}
