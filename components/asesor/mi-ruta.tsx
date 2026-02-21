@@ -3,11 +3,8 @@
 // ============================================================================
 // components/asesor/mi-ruta.tsx — CON CÁMARA EN CHECK-IN
 // ✅ Todo lo anterior +
-// ✅ Botón tomar foto antes del check-in
-// ✅ Comprime la foto automáticamente
-// ✅ Sube a Cloudinary via /api/upload-foto
-// ✅ URL guardada en visita
-// ✅ Asesor ve la foto al abrir cliente ya visitado
+// ✅ Botón "Actualizar ubicación" siempre visible (no solo cuando sin GPS)
+// ✅ Jhoan puede corregir coordenadas incorrectas desde campo
 // ============================================================================
 
 import { useState, useEffect, useRef } from "react"
@@ -76,7 +73,6 @@ function determinarEstado(cliente: ClienteConEstado): ClientStatus {
   return cliente.validada ? "validada" : "sospechosa"
 }
 
-// Comprime imagen a menos de 200KB en base64
 async function comprimirImagen(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image()
@@ -420,7 +416,7 @@ export function MiRuta({ asesor }: MiRutaProps) {
 }
 
 // ============================================================================
-// GESTIÓN DEL CLIENTE — CON CÁMARA
+// GESTIÓN DEL CLIENTE
 // ============================================================================
 interface GestionClienteProps {
   cliente: ClienteConEstado
@@ -432,39 +428,37 @@ interface GestionClienteProps {
 }
 
 function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, onExito }: GestionClienteProps) {
-  const [tipoGestion, setTipoGestion]   = useState<TipoGestion>(null)
-  const [monto, setMonto]               = useState("")
-  const [nota, setNota]                 = useState("")
-  const [loading, setLoading]           = useState(false)
-  const [guardandoGPS, setGuardandoGPS] = useState(false)
-  const [gpsGuardado, setGpsGuardado]   = useState(false)
-  const [distancia, setDistancia]       = useState<number | null>(null)
+  const [tipoGestion, setTipoGestion]       = useState<TipoGestion>(null)
+  const [monto, setMonto]                   = useState("")
+  const [nota, setNota]                     = useState("")
+  const [loading, setLoading]               = useState(false)
+  const [guardandoGPS, setGuardandoGPS]     = useState(false)
+  const [gpsGuardado, setGpsGuardado]       = useState(false)
+  const [distancia, setDistancia]           = useState<number | null>(null)
+  const [mostrarActualizarGPS, setMostrarActualizarGPS] = useState(false)
 
-  // Foto
-  const fileInputRef               = useRef<HTMLInputElement>(null)
-  const [fotoPreview, setFotoPreview] = useState<string | null>(null)
-  const [fotoBase64, setFotoBase64]   = useState<string | null>(null)
+  const fileInputRef                = useRef<HTMLInputElement>(null)
+  const [fotoPreview, setFotoPreview]   = useState<string | null>(null)
+  const [fotoBase64, setFotoBase64]     = useState<string | null>(null)
   const [subiendoFoto, setSubiendoFoto] = useState(false)
 
   const yaVisitado     = !!cliente.visitado_en
-  const sinGPS         = !cliente.lat || !cliente.lng
+  const sinGPS         = !cliente.lat || !cliente.lng || (parseFloat(String(cliente.lat)) === 0 && parseFloat(String(cliente.lng)) === 0)
   const radioPermitido = cliente.radio_metros ?? 50
   const dentroDelRango = distancia !== null && distancia <= radioPermitido
 
   useEffect(() => {
     if (userLocation && cliente.lat && cliente.lng) {
-      setDistancia(calcularDistancia(
-        userLocation.lat, userLocation.lng,
-        parseFloat(String(cliente.lat)),
-        parseFloat(String(cliente.lng))
-      ))
+      const lat = parseFloat(String(cliente.lat))
+      const lng = parseFloat(String(cliente.lng))
+      if (lat !== 0 && lng !== 0) {
+        setDistancia(calcularDistancia(userLocation.lat, userLocation.lng, lat, lng))
+      }
     }
   }, [userLocation, cliente.lat, cliente.lng])
 
-  // Abrir cámara
   const handleAbrirCamara = () => fileInputRef.current?.click()
 
-  // Procesar foto seleccionada
   const handleFotoSeleccionada = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -477,7 +471,6 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
       alert("Error procesando la foto. Intenta nuevamente.")
     } finally {
       setSubiendoFoto(false)
-      // Reset input para permitir volver a tomar foto
       if (fileInputRef.current) fileInputRef.current.value = ""
     }
   }
@@ -494,6 +487,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
       if (!res.ok) throw new Error()
       setGpsGuardado(true)
       setDistancia(0)
+      setMostrarActualizarGPS(false)
     } catch {
       alert("Error guardando coordenadas. Intenta nuevamente.")
     } finally {
@@ -509,7 +503,6 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
     }
     setLoading(true)
     try {
-      // Subir foto a Cloudinary si hay una
       let foto_url: string | null = null
       if (fotoBase64) {
         const uploadRes = await fetch('/api/upload-foto', {
@@ -564,7 +557,6 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
   return (
     <div className="flex flex-col min-h-screen bg-dark-bg">
 
-      {/* Input cámara oculto */}
       <input
         ref={fileInputRef}
         type="file"
@@ -607,41 +599,50 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
               <span className="text-xs font-mono text-gray-300">{cliente.codigo}</span>
             </div>
           )}
+          {/* Botón actualizar ubicación — siempre visible */}
+          <button
+            onClick={() => setMostrarActualizarGPS(!mostrarActualizarGPS)}
+            className="flex items-center gap-1.5 mt-1 text-xs text-gray-500 hover:text-navy-accent transition-colors"
+          >
+            <Navigation className="h-3.5 w-3.5" />
+            {sinGPS ? 'Capturar ubicación' : 'Actualizar ubicación'}
+          </button>
         </div>
 
-        {/* Foto de visita anterior (si ya fue visitado) */}
-        {yaVisitado && cliente.foto_url && (
-          <div className="rounded-xl overflow-hidden border border-white/10">
-            <div className="flex items-center gap-2 px-4 py-2 bg-dark-surface border-b border-white/10">
-              <ImageIcon className="h-4 w-4 text-gray-400" />
-              <p className="text-xs font-medium text-gray-400">Foto de la visita</p>
-            </div>
-            <img
-              src={cliente.foto_url}
-              alt="Foto de visita"
-              className="w-full object-cover max-h-56"
-            />
-          </div>
-        )}
-
-        {/* GPS capture */}
-        {sinGPS && !gpsGuardado && (
-          <div className="rounded-xl border border-warning/40 bg-warning/10 p-4">
+        {/* Panel actualizar GPS — expandible */}
+        {(sinGPS || mostrarActualizarGPS) && !gpsGuardado && (
+          <div className={`rounded-xl border p-4 ${sinGPS ? 'border-warning/40 bg-warning/10' : 'border-navy-accent/30 bg-navy-accent/5'}`}>
             <div className="flex items-start gap-3 mb-3">
-              <Navigation className="h-5 w-5 text-warning mt-0.5 shrink-0" />
+              <Navigation className={`h-5 w-5 mt-0.5 shrink-0 ${sinGPS ? 'text-warning' : 'text-navy-accent'}`} />
               <div>
-                <p className="text-sm font-semibold text-white">Sin ubicación GPS</p>
-                <p className="text-xs text-gray-400 mt-0.5">Captura la ubicación para futuras visitas.</p>
+                <p className="text-sm font-semibold text-white">
+                  {sinGPS ? 'Sin ubicación GPS' : 'Actualizar ubicación'}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {sinGPS
+                    ? 'Párate en el punto exacto del cliente y captura.'
+                    : 'Párate en el punto exacto del cliente y actualiza las coordenadas.'
+                  }
+                </p>
+                {userLocation && (
+                  <p className="text-[10px] text-gray-500 mt-1 font-mono">
+                    Tu posición: {userLocation.lat.toFixed(6)}, {userLocation.lng.toFixed(6)}
+                  </p>
+                )}
               </div>
             </div>
             <button
               onClick={handleCapturarGPS}
               disabled={guardandoGPS || !userLocation}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-warning/20 border border-warning/40 py-3 text-warning font-semibold text-sm transition-all active:scale-[0.97] disabled:opacity-50"
+              className={`flex w-full items-center justify-center gap-2 rounded-xl border py-3 font-semibold text-sm transition-all active:scale-[0.97] disabled:opacity-50 ${
+                sinGPS
+                  ? 'bg-warning/20 border-warning/40 text-warning'
+                  : 'bg-navy-accent/20 border-navy-accent/40 text-navy-accent'
+              }`}
             >
               {guardandoGPS
                 ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Guardando...</span></>
-                : <><Navigation className="h-4 w-4" /><span>Capturar ubicación</span></>
+                : <><Navigation className="h-4 w-4" /><span>{sinGPS ? 'Capturar ubicación' : 'Guardar nueva ubicación'}</span></>
               }
             </button>
           </div>
@@ -650,7 +651,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
         {gpsGuardado && (
           <div className="rounded-xl border border-success/30 bg-success/10 p-3 flex items-center gap-2">
             <Check className="h-4 w-4 text-success shrink-0" />
-            <p className="text-sm text-success font-medium">Ubicación guardada ✓</p>
+            <p className="text-sm text-success font-medium">Ubicación actualizada ✓</p>
           </div>
         )}
 
@@ -676,7 +677,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
                 {!userLocation ? (
                   <><p className="text-sm font-medium text-white">Obteniendo GPS...</p><p className="text-xs text-gray-400">Activa la ubicación</p></>
                 ) : gpsGuardado ? (
-                  <><p className="text-sm font-medium text-success">Ubicación registrada ✓</p><p className="text-xs text-gray-300">La visita se registrará como validada</p></>
+                  <><p className="text-sm font-medium text-success">Ubicación actualizada ✓</p><p className="text-xs text-gray-300">La visita se registrará como validada</p></>
                 ) : dentroDelRango ? (
                   <><p className="text-sm font-medium text-success">Dentro del rango ✓</p><p className="text-xs text-gray-300">A {formatearDistancia(distancia!)} del cliente</p></>
                 ) : (
@@ -711,6 +712,17 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
           </div>
         ) : (
           <>
+            {/* Foto de visita anterior */}
+            {cliente.foto_url && (
+              <div className="rounded-xl overflow-hidden border border-white/10">
+                <div className="flex items-center gap-2 px-4 py-2 bg-dark-surface border-b border-white/10">
+                  <ImageIcon className="h-4 w-4 text-gray-400" />
+                  <p className="text-xs font-medium text-gray-400">Foto de visita anterior</p>
+                </div>
+                <img src={cliente.foto_url} alt="Foto de visita" className="w-full object-cover max-h-56" />
+              </div>
+            )}
+
             {/* Tipo de gestión */}
             <div>
               <p className="text-sm font-semibold text-white mb-3">¿Qué pasó en esta visita?</p>
@@ -781,11 +793,10 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
               </div>
             )}
 
-            {/* ── SECCIÓN FOTO ── */}
+            {/* Foto */}
             {tipoGestion && (
               <div className="space-y-2">
                 <p className="text-sm font-semibold text-white">Foto del punto de venta</p>
-
                 {!fotoPreview ? (
                   <button
                     onClick={handleAbrirCamara}
