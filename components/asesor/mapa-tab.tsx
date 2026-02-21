@@ -2,10 +2,9 @@
 
 // ============================================================================
 // components/asesor/mapa-tab.tsx — MAPA REAL + BÚSQUEDA + NAVEGACIÓN
+// ✅ Pins con iniciales del cliente (no emoji ⏳)
 // ✅ Buscador por nombre de cliente
-// ✅ Resultados en tiempo real al escribir
-// ✅ Tap en resultado → mapa vuela al pin
-// ✅ Abre Google Maps o Waze desde la tarjeta
+// ✅ Google Maps / Waze integration
 // ============================================================================
 
 import { useEffect, useRef, useState } from "react"
@@ -17,6 +16,10 @@ const fetcher = (url: string) => fetch(url).then(r => r.json())
 
 function fechaColombia() {
   return new Date().toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
+}
+
+function getInitials(nombre: string): string {
+  return nombre.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
 }
 
 interface MapaTabProps { asesor: AsesorSession }
@@ -50,7 +53,6 @@ export function MapaTab({ asesor }: MapaTabProps) {
   const [clienteSel, setClienteSel]     = useState<ClienteMap | null>(null)
   const [mapError, setMapError]         = useState("")
 
-  // Búsqueda
   const [query, setQuery]             = useState("")
   const [showResults, setShowResults] = useState(false)
 
@@ -64,7 +66,6 @@ export function MapaTab({ asesor }: MapaTabProps) {
 
   const clientes: ClienteMap[] = data?.clientes ?? []
 
-  // Filtrar clientes por búsqueda
   const resultados = query.trim().length >= 2
     ? clientes.filter(c =>
         c.nombre.toLowerCase().includes(query.toLowerCase()) ||
@@ -137,7 +138,7 @@ export function MapaTab({ asesor }: MapaTabProps) {
     }
   }, [mapReady, userLocation])
 
-  // ── Pins de clientes ──────────────────────────────────────────────────────
+  // ── Pins de clientes con iniciales ───────────────────────────────────────
   useEffect(() => {
     if (!mapReady || !clientes.length) return
     const map = (mapRef.current as any)?._mapInstance
@@ -145,16 +146,50 @@ export function MapaTab({ asesor }: MapaTabProps) {
     if (!map || !L) return
     markersRef.current.forEach(m => map.removeLayer(m))
     markersRef.current = []
+
     clientes.filter(c => c.lat && c.lng).forEach((c: ClienteMap) => {
-      let color = '#6B7280'; let emoji = '⏳'
-      if (c.visitado_en && c.validada === true)  { color = '#1A7A4A'; emoji = '✅' }
-      if (c.visitado_en && c.validada === false) { color = '#D97706'; emoji = '⚠️' }
+      // Color según estado
+      let bgColor  = '#4B5563' // gris — pendiente
+      let txtColor = '#FFFFFF'
+
+      if (c.visitado_en && c.validada === true) {
+        bgColor  = '#1A7A4A' // verde — validada
+      } else if (c.visitado_en && c.validada === false) {
+        bgColor  = '#D97706' // amarillo — sospechosa
+      }
+
+      const initials = getInitials(c.nombre)
+
       const icon = L.divIcon({
         className: '',
-        html: `<div style="background:${color};border:2px solid white;border-radius:50% 50% 50% 0;width:28px;height:28px;transform:rotate(-45deg);box-shadow:0 2px 6px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;">
-          <span style="transform:rotate(45deg);font-size:12px">${emoji}</span></div>`,
-        iconSize: [28, 28], iconAnchor: [14, 28], popupAnchor: [0, -28],
+        html: `
+          <div style="
+            background:${bgColor};
+            border:2px solid white;
+            border-radius:50% 50% 50% 0;
+            width:32px;
+            height:32px;
+            transform:rotate(-45deg);
+            box-shadow:0 2px 6px rgba(0,0,0,0.4);
+            display:flex;
+            align-items:center;
+            justify-content:center;
+          ">
+            <span style="
+              transform:rotate(45deg);
+              font-size:10px;
+              font-weight:700;
+              color:${txtColor};
+              font-family:sans-serif;
+              line-height:1;
+              letter-spacing:-0.5px;
+            ">${initials}</span>
+          </div>`,
+        iconSize: [32, 32],
+        iconAnchor: [16, 32],
+        popupAnchor: [0, -32],
       })
+
       const marker = L.marker([c.lat!, c.lng!], { icon }).addTo(map).on('click', () => {
         setClienteSel(c)
         setQuery("")
@@ -162,6 +197,8 @@ export function MapaTab({ asesor }: MapaTabProps) {
       })
       markersRef.current.push(marker)
     })
+
+    // Ajustar vista si no hay GPS del asesor
     if (!userLocation) {
       const withCoords = clientes.filter(c => c.lat && c.lng)
       if (withCoords.length > 0) {
@@ -171,7 +208,7 @@ export function MapaTab({ asesor }: MapaTabProps) {
     }
   }, [mapReady, data])
 
-  // ── Volar mapa a un cliente desde la búsqueda ─────────────────────────────
+  // ── Volar al cliente buscado ──────────────────────────────────────────────
   const volarA = (cliente: ClienteMap) => {
     const map = (mapRef.current as any)?._mapInstance
     if (map && cliente.lat && cliente.lng) {
@@ -207,7 +244,7 @@ export function MapaTab({ asesor }: MapaTabProps) {
           )}
         </div>
 
-        {/* Resultados de búsqueda */}
+        {/* Resultados */}
         {showResults && resultados.length > 0 && (
           <div className="absolute left-3 right-3 top-full mt-1 rounded-xl border border-white/10 bg-dark-bg shadow-2xl overflow-hidden">
             {resultados.map(c => (
@@ -327,7 +364,7 @@ export function MapaTab({ asesor }: MapaTabProps) {
             </button>
           </div>
 
-          {/* Botones de navegación */}
+          {/* Botones navegación */}
           {clienteSel.lat && clienteSel.lng ? (
             <div className="grid grid-cols-2 gap-0 border-t border-white/10">
               <button
