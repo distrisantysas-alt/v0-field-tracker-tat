@@ -2,13 +2,16 @@
 
 // ============================================================================
 // components/supervisor/supervisor-layout.tsx — MÓVIL FIRST
+// ✅ Todo lo anterior +
+// ✅ Reporte por días en perfil de cada asesor
+// ✅ Tabla: día, visitas, pedidos, vendido
 // ============================================================================
 
 import { useState } from "react"
 import useSWR from "swr"
 import {
   Users, AlertTriangle, FileText, ChevronLeft, ChevronRight,
-  Loader2, Check, TrendingUp
+  Loader2, Check, TrendingUp, Eye, ShoppingBag, DollarSign
 } from "lucide-react"
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
@@ -19,6 +22,10 @@ function fechaColombia() {
 function getInitials(nombre: string) {
   return nombre.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
 }
+function formatFecha(fechaStr: string): string {
+  const fecha = new Date(fechaStr + 'T00:00:00')
+  return fecha.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })
+}
 
 type TabId = "equipo" | "alertas" | "reportes"
 
@@ -26,7 +33,7 @@ interface SupervisorLayoutProps { onBack: () => void }
 
 // ============================================================================
 export function SupervisorLayout({ onBack }: SupervisorLayoutProps) {
-  const [tab, setTab]   = useState<TabId>("equipo")
+  const [tab, setTab] = useState<TabId>("equipo")
   const fecha = fechaColombia()
 
   const { data, isLoading, mutate } = useSWR(
@@ -184,15 +191,41 @@ function EquipoView({ data }: { data: any }) {
 }
 
 // ============================================================================
-// PERFIL ASESOR
+// PERFIL ASESOR — con reporte por días
 // ============================================================================
 function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
   const fecha = fechaColombia()
+
+  const hace7Dias = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)
+    .toLocaleString('en-CA', { timeZone: 'America/Bogota' })
+    .split(',')[0];
+
   const { data, isLoading } = useSWR(
     `/api/resumen-dia?asesor_id=${asesor.id}&fecha=${fecha}`,
     fetcher,
     { refreshInterval: 30000 }
   )
+
+  const { data: semanaData } = useSWR(
+    `/api/resumen-dia?asesor_id=${asesor.id}&fecha_inicio=${hace7Dias}&fecha_fin=${fecha}&rango=true`,
+    fetcher,
+    { refreshInterval: 60000 }
+  )
+
+  // Construir reporte de los últimos 7 días
+  const reporteDias = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000)
+    const fechaStr = d.toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
+    const diaData = semanaData?.por_dia?.find((x: any) => x.fecha?.toString().startsWith(fechaStr))
+    return {
+      fecha:           fechaStr,
+      visitas:         diaData?.visitas  ?? 0,
+      pedidos:         diaData?.pedidos  ?? 0,
+      vendido:         diaData?.vendido  ?? 0,
+      vendido_formato: diaData?.vendido_formato ?? '$0',
+      esHoy:           fechaStr === fecha,
+    }
+  })
 
   return (
     <div className="p-4 space-y-4">
@@ -200,6 +233,9 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
         <button onClick={onBack} className="flex h-9 w-9 items-center justify-center rounded-xl bg-dark-surface text-gray-400">
           <ChevronLeft className="h-5 w-5" />
         </button>
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-navy-accent/20 text-sm font-bold text-navy-accent shrink-0">
+          {getInitials(asesor.nombre)}
+        </div>
         <div>
           <h2 className="text-base font-bold text-white">{asesor.nombre}</h2>
           <p className="text-xs text-gray-500">{asesor.zona || 'Sin zona'}</p>
@@ -212,16 +248,13 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
         </div>
       ) : data ? (
         <div className="space-y-4">
-          {/* KPIs */}
+
+          {/* KPIs hoy */}
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl bg-dark-surface border border-white/10 p-4 text-center">
               <p className="text-xs text-gray-500">Visitas hoy</p>
-              <p className="text-2xl font-bold text-white">{data.metricas?.visitas?.realizadas ?? 0}/{data.metricas?.visitas?.total ?? 0}</p>
-            </div>
-            <div className="rounded-xl bg-dark-surface border border-white/10 p-4 text-center">
-              <p className="text-xs text-gray-500">Cumplimiento</p>
-              <p className={`text-2xl font-bold ${(data.metricas?.visitas?.cumplimiento ?? 0) >= 80 ? 'text-success' : 'text-warning'}`}>
-                {data.metricas?.visitas?.cumplimiento ?? 0}%
+              <p className="text-2xl font-bold text-white">
+                {data.metricas?.visitas?.total ?? 0}
               </p>
             </div>
             <div className="rounded-xl bg-dark-surface border border-white/10 p-4 text-center">
@@ -229,37 +262,69 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
               <p className="text-2xl font-bold text-success">{data.metricas?.visitas?.validadas ?? 0}</p>
             </div>
             <div className="rounded-xl bg-dark-surface border border-white/10 p-4 text-center">
-              <p className="text-xs text-gray-500">Sospechosas</p>
-              <p className="text-2xl font-bold text-warning">{data.metricas?.visitas?.sospechosas ?? 0}</p>
+              <p className="text-xs text-gray-500">Pedidos</p>
+              <p className="text-2xl font-bold text-success">{data.metricas?.pedidos?.efectivos ?? 0}</p>
+            </div>
+            <div className="rounded-xl bg-dark-surface border border-white/10 p-4 text-center">
+              <p className="text-xs text-gray-500">Vendido hoy</p>
+              <p className="text-base font-bold text-white">{data.metricas?.pedidos?.total_vendido_formato ?? '$0'}</p>
             </div>
           </div>
 
-          {/* Ventas */}
-          {(data.metricas?.pedidos?.efectivos ?? 0) > 0 && (
-            <div className="rounded-xl bg-dark-surface border border-white/10 p-4">
-              <p className="text-sm font-semibold text-white mb-3">Pedidos del día</p>
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div>
-                  <p className="text-xs text-gray-500">Pedidos</p>
-                  <p className="text-xl font-bold text-success">{data.metricas.pedidos.efectivos}</p>
+          {/* Reporte por días */}
+          <div>
+            <h3 className="text-sm font-semibold text-white mb-3">Últimos 7 días</h3>
+            <div className="rounded-xl bg-dark-surface border border-white/10 overflow-hidden">
+              {/* Header */}
+              <div className="grid grid-cols-4 gap-1 px-3 py-2 border-b border-white/10 bg-white/5">
+                <p className="text-[10px] text-gray-500 font-medium">Día</p>
+                <p className="text-[10px] text-gray-500 font-medium text-center">
+                  <Eye className="h-3 w-3 inline" /> Vis.
+                </p>
+                <p className="text-[10px] text-gray-500 font-medium text-center">
+                  <ShoppingBag className="h-3 w-3 inline" /> Ped.
+                </p>
+                <p className="text-[10px] text-gray-500 font-medium text-right">
+                  <DollarSign className="h-3 w-3 inline" /> Venta
+                </p>
+              </div>
+              {/* Filas */}
+              {reporteDias.map((dia, i) => (
+                <div
+                  key={i}
+                  className={`grid grid-cols-4 gap-1 px-3 py-2.5 border-b border-white/5 last:border-0 ${
+                    dia.esHoy ? 'bg-navy-accent/10' : ''
+                  }`}
+                >
+                  <p className={`text-xs font-medium ${dia.esHoy ? 'text-navy-accent' : 'text-white'}`}>
+                    {dia.esHoy ? 'Hoy' : formatFecha(dia.fecha)}
+                  </p>
+                  <p className={`text-sm font-bold text-center ${dia.visitas > 0 ? 'text-white' : 'text-gray-600'}`}>
+                    {dia.visitas}
+                  </p>
+                  <p className={`text-sm font-bold text-center ${dia.pedidos > 0 ? 'text-success' : 'text-gray-600'}`}>
+                    {dia.pedidos}
+                  </p>
+                  <p className={`text-xs font-bold text-right ${dia.vendido > 0 ? 'text-white' : 'text-gray-600'}`}>
+                    {dia.vendido > 0 ? dia.vendido_formato : '—'}
+                  </p>
                 </div>
-                <div className="border-x border-white/10">
-                  <p className="text-xs text-gray-500">Total</p>
-                  <p className="text-base font-bold text-white">{data.metricas.pedidos.total_vendido_formato}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Promedio</p>
-                  <p className="text-base font-bold text-white">{data.metricas.pedidos.promedio_pedido_formato}</p>
-                </div>
+              ))}
+              {/* Total semana */}
+              <div className="grid grid-cols-4 gap-1 px-3 py-2.5 bg-white/5 border-t border-white/10">
+                <p className="text-xs font-bold text-white">Total</p>
+                <p className="text-sm font-bold text-center text-white">{semanaData?.totales?.visitas ?? 0}</p>
+                <p className="text-sm font-bold text-center text-success">{semanaData?.totales?.pedidos ?? 0}</p>
+                <p className="text-xs font-bold text-right text-white">{semanaData?.totales?.vendido_formato ?? '$0'}</p>
               </div>
             </div>
-          )}
+          </div>
 
-          {/* Historial */}
+          {/* Historial visitas hoy */}
           {(data.visitas?.length ?? 0) > 0 && (
             <div className="rounded-xl bg-dark-surface border border-white/10 overflow-hidden">
               <p className="px-4 py-3 text-sm font-semibold text-white border-b border-white/10">
-                Visitas del día
+                Visitas de hoy
               </p>
               <div className="divide-y divide-white/5">
                 {data.visitas.map((v: any) => (
