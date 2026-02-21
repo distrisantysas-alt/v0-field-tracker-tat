@@ -1,22 +1,22 @@
 "use client"
 
 // ============================================================================
-// components/asesor/mi-ruta.tsx — COMPLETO
-// Incluye:
-// ✅ Lista con búsqueda y filtro por ruta
-// ✅ Gestión del cliente (visita / pedido / nota)
-// ✅ Cliente sin GPS → captura coordenadas en campo
-// ✅ Cliente nuevo → botón flotante + formulario completo
-// ✅ Sincronía con supervisor en tiempo real
+// components/asesor/mi-ruta.tsx — CON CÁMARA EN CHECK-IN
+// ✅ Todo lo anterior +
+// ✅ Botón tomar foto antes del check-in
+// ✅ Comprime la foto automáticamente
+// ✅ Sube a Cloudinary via /api/upload-foto
+// ✅ URL guardada en visita
+// ✅ Asesor ve la foto al abrir cliente ya visitado
 // ============================================================================
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import useSWR from "swr"
 import {
   Bell, MapPin, Check, AlertTriangle, Clock, X,
   Loader2, Wifi, WifiOff, DollarSign, Search,
   ChevronLeft, ChevronRight, ShoppingBag, Eye,
-  Plus, UserPlus, Navigation
+  Plus, UserPlus, Navigation, Camera, ImageIcon
 } from "lucide-react"
 import {
   type ClienteConEstado,
@@ -29,7 +29,6 @@ import {
 } from "@/lib/db"
 import { type AsesorSession } from "./login-asesor"
 
-// ── Tipos ──────────────────────────────────────────────────────────────────
 type ClientStatus = "validada" | "sospechosa" | "pendiente"
 type TipoGestion  = "visita" | "pedido" | null
 type Vista        = "lista" | "gestion" | "nuevo-cliente"
@@ -42,7 +41,6 @@ const statusConfig: Record<ClientStatus, {
   pendiente:  { barColor: "bg-gray-600", bgOpacity: "bg-gray-500/15", textColor: "text-gray-400", label: "PENDIENTE"  },
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
 function getCurrentTime() {
@@ -76,6 +74,32 @@ function calcularDistancia(lat1: number, lng1: number, lat2: number, lng2: numbe
 function determinarEstado(cliente: ClienteConEstado): ClientStatus {
   if (!cliente.visitado_en) return "pendiente"
   return cliente.validada ? "validada" : "sospechosa"
+}
+
+// Comprime imagen a menos de 200KB en base64
+async function comprimirImagen(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      const MAX = 900
+      let { width, height } = img
+      if (width > MAX || height > MAX) {
+        if (width > height) { height = Math.round(height * MAX / width); width = MAX }
+        else { width = Math.round(width * MAX / height); height = MAX }
+      }
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(img, 0, 0, width, height)
+      const base64 = canvas.toDataURL('image/jpeg', 0.72)
+      URL.revokeObjectURL(url)
+      resolve(base64)
+    }
+    img.onerror = reject
+    img.src = url
+  })
 }
 
 interface MiRutaProps { asesor: AsesorSession }
@@ -152,7 +176,6 @@ export function MiRuta({ asesor }: MiRutaProps) {
   const visited = stats.validadas + stats.sospechosas
   const total   = stats.total
 
-  // ── Vistas secundarias ───────────────────────────────────────────────────
   if (vista === "gestion" && clienteActivo) {
     return (
       <GestionCliente
@@ -177,7 +200,6 @@ export function MiRuta({ asesor }: MiRutaProps) {
     )
   }
 
-  // ── Lista principal ──────────────────────────────────────────────────────
   if (error) {
     return (
       <div className="flex h-screen items-center justify-center px-4">
@@ -200,7 +222,6 @@ export function MiRuta({ asesor }: MiRutaProps) {
 
   return (
     <div className="flex flex-col">
-
       {/* Header */}
       <div className="flex items-center justify-between px-4 pb-2 pt-4">
         <div className="flex items-center gap-3">
@@ -298,7 +319,6 @@ export function MiRuta({ asesor }: MiRutaProps) {
             </button>
           )}
         </div>
-
         {rutasUnicas.length > 0 && (
           <div className="flex gap-2 overflow-x-auto pb-1">
             <button
@@ -318,7 +338,6 @@ export function MiRuta({ asesor }: MiRutaProps) {
             ))}
           </div>
         )}
-
         <p className="text-xs text-gray-500 px-1">
           {clientesFiltrados.length} de {total} clientes
           {filtroRuta && ` · Ruta ${filtroRuta}`}
@@ -332,10 +351,7 @@ export function MiRuta({ asesor }: MiRutaProps) {
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <Search className="h-10 w-10 text-gray-600 mb-3" />
             <p className="text-gray-400 text-sm">No se encontraron clientes</p>
-            <button
-              onClick={() => { setBuscar(""); setFiltroRuta("") }}
-              className="mt-2 text-xs text-navy-accent hover:underline"
-            >Limpiar filtros</button>
+            <button onClick={() => { setBuscar(""); setFiltroRuta("") }} className="mt-2 text-xs text-navy-accent hover:underline">Limpiar filtros</button>
           </div>
         ) : (
           clientesFiltrados.map((cliente: ClienteConEstado) => {
@@ -361,11 +377,9 @@ export function MiRuta({ asesor }: MiRutaProps) {
                 key={cliente.id}
                 onClick={() => { setClienteActivo(cliente); setVista("gestion") }}
                 className={`flex overflow-hidden rounded-xl border transition-all duration-150 active:scale-[0.98] text-left w-full ${
-                  yaVisitado
-                    ? "border-white/5 bg-dark-surface opacity-70"
-                    : sinGPS
-                    ? "border-warning/30 bg-dark-surface"
-                    : "border-white/10 bg-dark-surface hover:border-navy-accent/50"
+                  yaVisitado ? "border-white/5 bg-dark-surface opacity-70" :
+                  sinGPS ? "border-warning/30 bg-dark-surface" :
+                  "border-white/10 bg-dark-surface hover:border-navy-accent/50"
                 }`}
               >
                 <div className={`w-1 shrink-0 ${config.barColor}`} />
@@ -406,7 +420,7 @@ export function MiRuta({ asesor }: MiRutaProps) {
 }
 
 // ============================================================================
-// GESTIÓN DEL CLIENTE (visita / pedido + captura GPS si no tiene)
+// GESTIÓN DEL CLIENTE — CON CÁMARA
 // ============================================================================
 interface GestionClienteProps {
   cliente: ClienteConEstado
@@ -418,16 +432,22 @@ interface GestionClienteProps {
 }
 
 function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, onExito }: GestionClienteProps) {
-  const [tipoGestion, setTipoGestion]     = useState<TipoGestion>(null)
-  const [monto, setMonto]                 = useState("")
-  const [nota, setNota]                   = useState("")
-  const [loading, setLoading]             = useState(false)
-  const [guardandoGPS, setGuardandoGPS]   = useState(false)
-  const [gpsGuardado, setGpsGuardado]     = useState(false)
-  const [distancia, setDistancia]         = useState<number | null>(null)
+  const [tipoGestion, setTipoGestion]   = useState<TipoGestion>(null)
+  const [monto, setMonto]               = useState("")
+  const [nota, setNota]                 = useState("")
+  const [loading, setLoading]           = useState(false)
+  const [guardandoGPS, setGuardandoGPS] = useState(false)
+  const [gpsGuardado, setGpsGuardado]   = useState(false)
+  const [distancia, setDistancia]       = useState<number | null>(null)
 
-  const yaVisitado  = !!cliente.visitado_en
-  const sinGPS      = !cliente.lat || !cliente.lng
+  // Foto
+  const fileInputRef               = useRef<HTMLInputElement>(null)
+  const [fotoPreview, setFotoPreview] = useState<string | null>(null)
+  const [fotoBase64, setFotoBase64]   = useState<string | null>(null)
+  const [subiendoFoto, setSubiendoFoto] = useState(false)
+
+  const yaVisitado     = !!cliente.visitado_en
+  const sinGPS         = !cliente.lat || !cliente.lng
   const radioPermitido = cliente.radio_metros ?? 50
   const dentroDelRango = distancia !== null && distancia <= radioPermitido
 
@@ -441,7 +461,27 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
     }
   }, [userLocation, cliente.lat, cliente.lng])
 
-  // Capturar y guardar GPS del cliente que no tiene coordenadas
+  // Abrir cámara
+  const handleAbrirCamara = () => fileInputRef.current?.click()
+
+  // Procesar foto seleccionada
+  const handleFotoSeleccionada = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setSubiendoFoto(true)
+    try {
+      const base64 = await comprimirImagen(file)
+      setFotoPreview(base64)
+      setFotoBase64(base64)
+    } catch {
+      alert("Error procesando la foto. Intenta nuevamente.")
+    } finally {
+      setSubiendoFoto(false)
+      // Reset input para permitir volver a tomar foto
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
+
   const handleCapturarGPS = async () => {
     if (!userLocation) { alert("Esperando GPS. Activa la ubicación."); return }
     setGuardandoGPS(true)
@@ -453,7 +493,6 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
       })
       if (!res.ok) throw new Error()
       setGpsGuardado(true)
-      // Actualizar distancia en pantalla
       setDistancia(0)
     } catch {
       alert("Error guardando coordenadas. Intenta nuevamente.")
@@ -470,6 +509,20 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
     }
     setLoading(true)
     try {
+      // Subir foto a Cloudinary si hay una
+      let foto_url: string | null = null
+      if (fotoBase64) {
+        const uploadRes = await fetch('/api/upload-foto', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ foto_base64: fotoBase64 }),
+        })
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json()
+          foto_url = uploadData.url
+        }
+      }
+
       const payload = {
         asesor_id:    asesorId,
         cliente_id:   cliente.id,
@@ -478,7 +531,9 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
         notas:        nota || null,
         hubo_pedido:  tipoGestion === "pedido",
         valor_pedido: tipoGestion === "pedido" ? parseFloat(monto) : 0,
+        foto_url,
       }
+
       if (hayConexion()) {
         const res = await fetch('/api/checkin', {
           method: 'POST',
@@ -488,14 +543,14 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
         if (!res.ok) throw new Error()
       } else {
         await guardarVisitaOffline({
-          offline_id: generarOfflineID(),
-          asesor_id: payload.asesor_id,
-          cliente_id: payload.cliente_id,
+          offline_id:    generarOfflineID(),
+          asesor_id:     payload.asesor_id,
+          cliente_id:    payload.cliente_id,
           lat_capturada: payload.lat,
           lng_capturada: payload.lng,
-          notas: payload.notas,
-          timestamp: new Date().toISOString(),
-          synced: false,
+          notas:         payload.notas,
+          timestamp:     new Date().toISOString(),
+          synced:        false,
         })
       }
       onExito()
@@ -508,6 +563,16 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
 
   return (
     <div className="flex flex-col min-h-screen bg-dark-bg">
+
+      {/* Input cámara oculto */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleFotoSeleccionada}
+      />
 
       {/* Header */}
       <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-white/10">
@@ -544,16 +609,29 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
           )}
         </div>
 
-        {/* Bloque GPS del cliente sin coordenadas */}
+        {/* Foto de visita anterior (si ya fue visitado) */}
+        {yaVisitado && cliente.foto_url && (
+          <div className="rounded-xl overflow-hidden border border-white/10">
+            <div className="flex items-center gap-2 px-4 py-2 bg-dark-surface border-b border-white/10">
+              <ImageIcon className="h-4 w-4 text-gray-400" />
+              <p className="text-xs font-medium text-gray-400">Foto de la visita</p>
+            </div>
+            <img
+              src={cliente.foto_url}
+              alt="Foto de visita"
+              className="w-full object-cover max-h-56"
+            />
+          </div>
+        )}
+
+        {/* GPS capture */}
         {sinGPS && !gpsGuardado && (
           <div className="rounded-xl border border-warning/40 bg-warning/10 p-4">
             <div className="flex items-start gap-3 mb-3">
               <Navigation className="h-5 w-5 text-warning mt-0.5 shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-white">Este cliente no tiene ubicación GPS</p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Puedes capturar su ubicación ahora desde donde estás para futuras visitas.
-                </p>
+                <p className="text-sm font-semibold text-white">Sin ubicación GPS</p>
+                <p className="text-xs text-gray-400 mt-0.5">Captura la ubicación para futuras visitas.</p>
               </div>
             </div>
             <button
@@ -562,24 +640,21 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-warning/20 border border-warning/40 py-3 text-warning font-semibold text-sm transition-all active:scale-[0.97] disabled:opacity-50"
             >
               {guardandoGPS
-                ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Guardando ubicación...</span></>
-                : <><Navigation className="h-4 w-4" /><span>Capturar ubicación actual</span></>
+                ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Guardando...</span></>
+                : <><Navigation className="h-4 w-4" /><span>Capturar ubicación</span></>
               }
             </button>
-            <p className="mt-2 text-center text-[10px] text-gray-500">
-              {userLocation ? "GPS activo — listo para capturar" : "Activando GPS..."}
-            </p>
           </div>
         )}
 
         {gpsGuardado && (
           <div className="rounded-xl border border-success/30 bg-success/10 p-3 flex items-center gap-2">
             <Check className="h-4 w-4 text-success shrink-0" />
-            <p className="text-sm text-success font-medium">Ubicación guardada correctamente ✓</p>
+            <p className="text-sm text-success font-medium">Ubicación guardada ✓</p>
           </div>
         )}
 
-        {/* GPS Status (solo si tiene coordenadas o ya capturó) */}
+        {/* GPS Status */}
         {(!sinGPS || gpsGuardado) && (
           <div className={`rounded-xl border p-4 ${
             !userLocation ? "border-gray-700 bg-gray-800/50" :
@@ -603,9 +678,9 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
                 ) : gpsGuardado ? (
                   <><p className="text-sm font-medium text-success">Ubicación registrada ✓</p><p className="text-xs text-gray-300">La visita se registrará como validada</p></>
                 ) : dentroDelRango ? (
-                  <><p className="text-sm font-medium text-success">Dentro del rango ✓</p><p className="text-xs text-gray-300">A {formatearDistancia(distancia!)} del cliente (máx. {radioPermitido}m)</p></>
+                  <><p className="text-sm font-medium text-success">Dentro del rango ✓</p><p className="text-xs text-gray-300">A {formatearDistancia(distancia!)} del cliente</p></>
                 ) : (
-                  <><p className="text-sm font-medium text-warning">Fuera del rango</p><p className="text-xs text-gray-300">A {formatearDistancia(distancia!)} — se marcará como sospechosa</p></>
+                  <><p className="text-sm font-medium text-warning">Fuera del rango</p><p className="text-xs text-gray-300">A {formatearDistancia(distancia!)} — sospechosa</p></>
                 )}
               </div>
             </div>
@@ -615,7 +690,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
         {/* Ya visitado */}
         {yaVisitado ? (
           <div className="rounded-xl bg-dark-surface border border-white/10 p-4">
-            <p className="text-sm font-semibold text-white mb-3">Registro anterior</p>
+            <p className="text-sm font-semibold text-white mb-3">Registro de hoy</p>
             <div className="space-y-2 text-sm text-gray-400">
               <div className="flex justify-between">
                 <span>Estado</span>
@@ -625,12 +700,14 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
               </div>
               {cliente.distancia_metros && (
                 <div className="flex justify-between">
-                  <span>Distancia registrada</span>
+                  <span>Distancia</span>
                   <span className="text-white">{formatearDistancia(cliente.distancia_metros)}</span>
                 </div>
               )}
+              {!cliente.foto_url && (
+                <p className="text-xs text-gray-600 text-center pt-1">Sin foto en esta visita</p>
+              )}
             </div>
-            <p className="mt-3 text-xs text-gray-600 text-center">Este cliente ya fue gestionado hoy</p>
           </div>
         ) : (
           <>
@@ -648,7 +725,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
                 >
                   <Eye className={`h-7 w-7 ${tipoGestion === "visita" ? "text-navy-accent" : "text-gray-500"}`} />
                   <span className="text-sm font-semibold">Solo Visita</span>
-                  <span className="text-[10px] text-center opacity-70">Sin pedido esta vez</span>
+                  <span className="text-[10px] text-center opacity-70">Sin pedido</span>
                 </button>
                 <button
                   onClick={() => setTipoGestion(tipoGestion === "pedido" ? null : "pedido")}
@@ -703,6 +780,46 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
                 />
               </div>
             )}
+
+            {/* ── SECCIÓN FOTO ── */}
+            {tipoGestion && (
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-white">Foto del punto de venta</p>
+
+                {!fotoPreview ? (
+                  <button
+                    onClick={handleAbrirCamara}
+                    disabled={subiendoFoto}
+                    className="flex w-full items-center justify-center gap-3 rounded-xl border-2 border-dashed border-white/20 bg-dark-surface py-6 text-gray-400 transition-all hover:border-navy-accent/50 hover:text-gray-300 active:scale-[0.98] disabled:opacity-50"
+                  >
+                    {subiendoFoto
+                      ? <><Loader2 className="h-6 w-6 animate-spin" /><span className="text-sm">Procesando...</span></>
+                      : <><Camera className="h-6 w-6" /><span className="text-sm font-medium">Tomar foto</span></>
+                    }
+                  </button>
+                ) : (
+                  <div className="relative rounded-xl overflow-hidden border border-success/30">
+                    <img src={fotoPreview} alt="Foto" className="w-full object-cover max-h-52" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                    <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between px-3 py-2">
+                      <div className="flex items-center gap-1.5">
+                        <Check className="h-4 w-4 text-success" />
+                        <span className="text-xs font-medium text-white">Foto lista</span>
+                      </div>
+                      <button
+                        onClick={() => { setFotoPreview(null); setFotoBase64(null) }}
+                        className="flex items-center gap-1 rounded-lg bg-black/40 px-2 py-1 text-xs text-white"
+                      >
+                        <Camera className="h-3 w-3" /> Cambiar
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <p className="text-[10px] text-gray-600 text-center">
+                  {fotoPreview ? "La foto se subirá al confirmar" : "Opcional — evidencia de la visita"}
+                </p>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -736,7 +853,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
 }
 
 // ============================================================================
-// NUEVO CLIENTE — formulario completo con GPS
+// NUEVO CLIENTE
 // ============================================================================
 interface NuevoClienteProps {
   asesorId: string
@@ -744,11 +861,6 @@ interface NuevoClienteProps {
   onVolver: () => void
   onExito: () => void
 }
-
-// ============================================================================
-// REEMPLAZA la función NuevoCliente en components/asesor/mi-ruta.tsx
-// Busca: "function NuevoCliente(" y reemplaza todo hasta el último "}" del componente
-// ============================================================================
 
 function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClienteProps) {
   const [ruta, setRuta]           = useState("")
@@ -764,7 +876,6 @@ function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClient
     setError("")
     setLoading(true)
     try {
-      // Concatenar ruta al nombre si se ingresó: "75 TIENDA LA ESQUINA"
       const nombreFinal = ruta.trim()
         ? `${ruta.trim().toUpperCase()} ${nombre.trim().toUpperCase()}`
         : nombre.trim().toUpperCase()
@@ -794,8 +905,6 @@ function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClient
 
   return (
     <div className="flex flex-col min-h-screen bg-dark-bg">
-
-      {/* Header */}
       <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-white/10">
         <button onClick={onVolver} className="flex h-9 w-9 items-center justify-center rounded-xl bg-dark-surface text-gray-400 hover:text-white transition-colors">
           <ChevronLeft className="h-5 w-5" />
@@ -808,12 +917,9 @@ function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClient
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-32">
-
-        {/* Ruta + Nombre en la misma fila */}
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Ruta y nombre del cliente *</label>
+          <label className="block text-xs text-gray-400 mb-1">Ruta y nombre *</label>
           <div className="flex gap-2">
-            {/* Campo ruta — ancho fijo pequeño */}
             <input
               type="text"
               value={ruta}
@@ -823,7 +929,6 @@ function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClient
               inputMode="numeric"
               className="w-20 rounded-xl border border-white/10 bg-dark-surface px-3 py-3 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none text-center font-mono"
             />
-            {/* Campo nombre */}
             <input
               type="text"
               value={nombre}
@@ -835,18 +940,13 @@ function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClient
               }`}
             />
           </div>
-          {/* Preview del nombre final */}
           {(ruta || nombre) && (
             <p className="mt-1.5 px-1 text-xs text-gray-500">
-              Se guardará como:{" "}
-              <span className="text-white font-mono">
-                {ruta ? `${ruta.toUpperCase()} ` : ""}{nombre.toUpperCase()}
-              </span>
+              Se guardará como: <span className="text-white font-mono">{ruta ? `${ruta.toUpperCase()} ` : ""}{nombre.toUpperCase()}</span>
             </p>
           )}
         </div>
 
-        {/* Dirección */}
         <div>
           <label className="block text-xs text-gray-400 mb-1">Dirección</label>
           <input
@@ -858,7 +958,6 @@ function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClient
           />
         </div>
 
-        {/* Teléfono */}
         <div>
           <label className="block text-xs text-gray-400 mb-1">Teléfono</label>
           <input
@@ -871,10 +970,7 @@ function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClient
           />
         </div>
 
-        {/* GPS */}
-        <div className={`rounded-xl border p-4 ${
-          usarGPS && userLocation ? "border-success/30 bg-success/10" : "border-white/10 bg-dark-surface"
-        }`}>
+        <div className={`rounded-xl border p-4 ${usarGPS && userLocation ? "border-success/30 bg-success/10" : "border-white/10 bg-dark-surface"}`}>
           <label className="flex items-center gap-3 cursor-pointer">
             <input
               type="checkbox"
@@ -885,18 +981,12 @@ function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClient
             <div>
               <p className="text-sm font-medium text-white">Capturar ubicación GPS ahora</p>
               <p className="text-xs text-gray-400">
-                {usarGPS
-                  ? userLocation
-                    ? `📍 ${userLocation.lat.toFixed(5)}, ${userLocation.lng.toFixed(5)}`
-                    : "Obteniendo GPS..."
-                  : "Sin ubicación (se puede agregar después)"
-                }
+                {usarGPS ? userLocation ? `📍 ${userLocation.lat.toFixed(5)}, ${userLocation.lng.toFixed(5)}` : "Obteniendo GPS..." : "Sin ubicación"}
               </p>
             </div>
           </label>
         </div>
 
-        {/* Error */}
         {error && (
           <div className="flex items-center gap-2 rounded-xl bg-danger/10 border border-danger/20 px-4 py-3">
             <AlertTriangle className="h-4 w-4 text-danger shrink-0" />
@@ -905,7 +995,6 @@ function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClient
         )}
       </div>
 
-      {/* Botón crear */}
       <div className="fixed inset-x-0 bottom-16 z-40 px-4 pb-3">
         <button
           onClick={handleCrear}
