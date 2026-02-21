@@ -3,8 +3,8 @@
 // ============================================================================
 // Si hay rutas asignadas en rutas_dia → las usa (con orden)
 // Si NO hay rutas → devuelve TODOS los clientes asignados al asesor
+// ✅ Incluye foto_url de la visita del día
 // ============================================================================
-
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -44,7 +44,8 @@ export async function GET(req: NextRequest) {
         r.completada,
         v.validada,
         v.distancia_metros,
-        v.timestamp AS visitado_en
+        v.timestamp AS visitado_en,
+        v.foto_url
       FROM rutas_dia r
       JOIN clientes c ON c.id = r.cliente_id
       LEFT JOIN visitas v
@@ -70,7 +71,8 @@ export async function GET(req: NextRequest) {
         false AS completada,
         v.validada,
         v.distancia_metros,
-        v.timestamp AS visitado_en
+        v.timestamp AS visitado_en,
+        v.foto_url
       FROM clientes c
       LEFT JOIN visitas v
         ON v.cliente_id = c.id
