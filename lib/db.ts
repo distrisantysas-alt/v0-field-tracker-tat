@@ -280,6 +280,8 @@ export function soportaGPS(): boolean {
 
 /**
  * Obtiene la posición GPS actual con timeout
+ * Intento 1: Alta precisión (GPS físico / red móvil) — 8 segundos
+ * Intento 2: Baja precisión (WiFi / IP) — fallback automático
  */
 export function obtenerPosicionGPS(): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
@@ -288,10 +290,18 @@ export function obtenerPosicionGPS(): Promise<GeolocationPosition> {
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
+    // Intento 1: alta precisión
+    navigator.geolocation.getCurrentPosition(resolve, () => {
+      // Intento 2: baja precisión (WiFi / IP)
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: false,
+        timeout: 15000,
+        maximumAge: 60000,
+      });
+    }, {
       enableHighAccuracy: true,
-      timeout: 10000, // 10 segundos
-      maximumAge: 0, // No usar caché
+      timeout: 8000,
+      maximumAge: 30000,
     });
   });
 }
