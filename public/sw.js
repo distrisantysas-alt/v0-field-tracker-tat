@@ -7,7 +7,7 @@
 
 // ⚠️ IMPORTANTE: Cambia este número cada vez que hagas deploy
 // Esto fuerza que todos los asesores reciban la actualización automáticamente
-const APP_VERSION = 'v9'
+const APP_VERSION = 'v10-20260222'
 const CACHE_NAME = `dsroute-${APP_VERSION}`
 const OFFLINE_QUEUE = 'dsroute-offline-visitas'
 
