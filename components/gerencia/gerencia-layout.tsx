@@ -5,7 +5,7 @@
 // Pestañas: Dashboard · Equipo · Zonas · Asesores (admin) · Importar
 // ============================================================================
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import useSWR from "swr"
 import {
   BarChart2, Users, Map, Settings, Upload,
@@ -425,53 +425,114 @@ function TabAsesores() {
   )
 }
 
-// ── Vista clientes de asesor ─────────────────────────────────────────────────
+// ── Vista clientes de asesor — por rutas ────────────────────────────────────
 function VistaClientesAsesor({ asesor, onVolver }: { asesor: any; onVolver: () => void }) {
-  const [buscar, setBuscar]     = useState("")
-  const [filtroRuta, setFiltroRuta] = useState("")
-  const { data, isLoading } = useSWR(
-    `/api/admin/clientes?asesor_id=${asesor.id}&limit=500`, fetcher
+  const [rutaActiva, setRutaActiva]   = useState<string | null>(null)
+  const [rutas, setRutas]             = useState<{ nombre: string; total: number }[]>([])
+  const [clientes, setClientes]       = useState<any[]>([])
+  const [buscar, setBuscar]           = useState("")
+  const [loadingRutas, setLoadingRutas] = useState(true)
+  const [loadingClientes, setLoadingClientes] = useState(false)
+  const totalClientes = rutas.reduce((s, r) => s + r.total, 0)
+
+  // Carga liviana: solo rutas con conteo
+  useEffect(() => {
+    async function cargarRutas() {
+      setLoadingRutas(true)
+      const res = await fetch(`/api/admin/clientes?asesor_id=${asesor.id}&limit=5000&offset=0`)
+      const data = await res.json()
+      const todos: any[] = data?.clientes || []
+      // Agrupar por ruta
+      const mapa = new Map<string, number>()
+      for (const c of todos) {
+        const r = getRuta(c.nombre)
+        mapa.set(r, (mapa.get(r) || 0) + 1)
+      }
+      const lista = Array.from(mapa.entries())
+        .map(([nombre, total]) => ({ nombre, total }))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, undefined, { numeric: true }))
+      setRutas(lista)
+      setLoadingRutas(false)
+    }
+    cargarRutas()
+  }, [asesor.id])
+
+  // Al seleccionar ruta: cargar sus clientes
+  useEffect(() => {
+    if (!rutaActiva) { setClientes([]); return }
+    async function cargarClientes() {
+      setLoadingClientes(true)
+      setBuscar("")
+      const res = await fetch(`/api/admin/clientes?asesor_id=${asesor.id}&buscar=${encodeURIComponent(rutaActiva + ' ')}&limit=2000`)
+      const data = await res.json()
+      // Filtrar exactamente la ruta seleccionada
+      const filtrados = (data?.clientes || []).filter((c: any) => getRuta(c.nombre) === rutaActiva)
+      setClientes(filtrados)
+      setLoadingClientes(false)
+    }
+    cargarClientes()
+  }, [rutaActiva, asesor.id])
+
+  const clientesFiltrados = clientes.filter(c =>
+    buscar ? c.nombre.toLowerCase().includes(buscar.toLowerCase()) : true
   )
 
-  const todos = data?.clientes || []
-  const rutasUnicas = Array.from(new Set(todos.map((c: any) => getRuta(c.nombre))))
-    .filter((r: any) => r !== '—')
-    .sort((a: any, b: any) => a.localeCompare(b, undefined, { numeric: true }))
+  // Vista: lista de rutas
+  if (!rutaActiva) {
+    return (
+      <div className="p-4 space-y-3">
+        <div className="flex items-center gap-3">
+          <button onClick={onVolver} className="flex h-9 w-9 items-center justify-center rounded-xl bg-dark-surface text-gray-400">
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          <div>
+            <h2 className="text-sm font-bold text-white">{asesor.nombre}</h2>
+            <p className="text-xs text-gray-500">{loadingRutas ? 'Cargando rutas...' : `${totalClientes} clientes · ${rutas.length} rutas`}</p>
+          </div>
+        </div>
 
-  const filtrados = todos.filter((c: any) => {
-    const matchRuta   = filtroRuta ? getRuta(c.nombre) === filtroRuta : true
-    const matchBuscar = buscar ? c.nombre.toLowerCase().includes(buscar.toLowerCase()) : true
-    return matchRuta && matchBuscar
-  })
+        {loadingRutas ? <LoadingSpinner /> : (
+          <div className="space-y-2">
+            {rutas.map(r => (
+              <button
+                key={r.nombre}
+                onClick={() => setRutaActiva(r.nombre)}
+                className="flex w-full items-center gap-3 rounded-xl bg-dark-surface border border-white/10 px-4 py-3 text-left hover:border-navy-accent/50 transition-all"
+              >
+                <span className="shrink-0 rounded bg-white/10 px-2 py-1 text-xs font-bold font-mono text-gray-300 w-16 text-center">{r.nombre}</span>
+                <span className="flex-1 text-sm text-white">Ruta {r.nombre}</span>
+                <span className="text-xs text-gray-400">{r.total} clientes</span>
+                <ChevronRight className="h-4 w-4 text-gray-600" />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
 
+  // Vista: clientes de la ruta
   return (
     <div className="p-4 space-y-3">
       <div className="flex items-center gap-3">
-        <button onClick={onVolver} className="flex h-9 w-9 items-center justify-center rounded-xl bg-dark-surface text-gray-400">
+        <button onClick={() => { setRutaActiva(null); setClientes([]) }} className="flex h-9 w-9 items-center justify-center rounded-xl bg-dark-surface text-gray-400">
           <ChevronLeft className="h-5 w-5" />
         </button>
         <div>
-          <h2 className="text-sm font-bold text-white">{asesor.nombre}</h2>
-          <p className="text-xs text-gray-500">{filtrados.length} de {todos.length} clientes</p>
+          <h2 className="text-sm font-bold text-white">{asesor.nombre} · Ruta {rutaActiva}</h2>
+          <p className="text-xs text-gray-500">{loadingClientes ? 'Cargando...' : `${clientesFiltrados.length} clientes`}</p>
         </div>
       </div>
 
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
-          <input value={buscar} onChange={e => setBuscar(e.target.value)} placeholder="Buscar..." className="w-full rounded-xl border border-white/10 bg-dark-surface pl-10 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none" />
-        </div>
-        <select value={filtroRuta} onChange={e => setFiltroRuta(e.target.value)} className="rounded-xl border border-white/10 bg-dark-surface px-3 py-2.5 text-sm text-white focus:outline-none">
-          <option value="">Todas</option>
-          {(rutasUnicas as string[]).map(r => <option key={r} value={r}>Ruta {r}</option>)}
-        </select>
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+        <input value={buscar} onChange={e => setBuscar(e.target.value)} placeholder="Buscar en esta ruta..." className="w-full rounded-xl border border-white/10 bg-dark-surface pl-10 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none" />
       </div>
 
-      {isLoading ? <LoadingSpinner /> : (
+      {loadingClientes ? <LoadingSpinner /> : (
         <div className="space-y-1.5">
-          {filtrados.map((c: any) => (
+          {clientesFiltrados.map((c: any) => (
             <div key={c.id} className="flex items-center gap-3 rounded-lg bg-dark-surface border border-white/5 px-3 py-2.5">
-              <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-bold font-mono text-gray-300">{getRuta(c.nombre)}</span>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-white truncate">{getNombreSinRuta(c.nombre)}</p>
                 <p className="text-[10px] text-gray-500 truncate">{c.direccion || '—'}</p>
@@ -563,8 +624,23 @@ function VistaEditarAsesor({ asesor, onVolver }: { asesor: any; onVolver: () => 
 
 // ── Reasignar clientes ───────────────────────────────────────────────────────
 function VistaReasignar({ asesor, asesores, onVolver }: { asesor: any; asesores: any[]; onVolver: () => void }) {
-  const { data } = useSWR(`/api/admin/clientes?asesor_id=${asesor.id}&limit=500`, fetcher)
-  const todos = data?.clientes || []
+  const [todos, setTodos] = useState<any[]>([])
+  useEffect(() => {
+    async function cargarTodos() {
+      const BATCH = 1000
+      let offset = 0
+      let acumulados: any[] = []
+      while (true) {
+        const res = await fetch(`/api/admin/clientes?asesor_id=${asesor.id}&limit=${BATCH}&offset=${offset}`)
+        const data = await res.json()
+        acumulados = [...acumulados, ...(data?.clientes || [])]
+        if (!data?.pagination?.has_more) break
+        offset += BATCH
+      }
+      setTodos(acumulados)
+    }
+    cargarTodos()
+  }, [asesor.id])
 
   const rutasUnicas: string[] = Array.from(new Set(todos.map((c: any) => getRuta(c.nombre))))
     .filter((r: any) => r !== '—')
