@@ -1,28 +1,38 @@
 // ============================================================================
 // public/sw.js — Service Worker DSRoute
-// ✅ Auto-detección de nueva versión
+// ✅ Versión automática — cambia en cada deploy de Vercel
 // ✅ Notifica al asesor cuando hay actualización disponible
 // ✅ Soporte offline intacto
 // ============================================================================
 
-// ⚠️ IMPORTANTE: Cambia este número cada vez que hagas deploy
-// Esto fuerza que todos los asesores reciban la actualización automáticamente
-const APP_VERSION = 'v10-20260222'
-const CACHE_NAME = `dsroute-${APP_VERSION}`
 const OFFLINE_QUEUE = 'dsroute-offline-visitas'
+const STATIC_ASSETS = ['/', '/offline.html']
 
-const STATIC_ASSETS = [
-  '/',
-  '/offline.html',
-]
+let APP_VERSION = 'init'
+let CACHE_NAME  = `dsroute-${APP_VERSION}`
+
+// ── Obtener versión del servidor al instalar ──────────────────────────────────
+async function fetchVersion() {
+  try {
+    const res = await fetch('/api/sw-version')
+    const data = await res.json()
+    return data.version ?? Date.now().toString()
+  } catch {
+    return Date.now().toString()
+  }
+}
 
 // ── Instalación ──────────────────────────────────────────────────────────────
 self.addEventListener('install', (event) => {
-  console.log(`[SW] Instalando versión ${APP_VERSION}`)
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS))
+    fetchVersion().then(async (version) => {
+      APP_VERSION = version
+      CACHE_NAME  = `dsroute-${APP_VERSION}`
+      console.log(`[SW] Instalando versión ${APP_VERSION}`)
+      const cache = await caches.open(CACHE_NAME)
+      await cache.addAll(STATIC_ASSETS)
+    })
   )
-  // NO llamar skipWaiting() aquí — esperar confirmación del usuario
 })
 
 // ── Activación ───────────────────────────────────────────────────────────────
@@ -38,12 +48,11 @@ self.addEventListener('activate', (event) => {
             return caches.delete(k)
           })
       )
-    )
+    ).then(() => self.clients.claim())
   )
-  self.clients.claim()
 })
 
-// ── Detectar nueva versión esperando ─────────────────────────────────────────
+// ── Mensajes ─────────────────────────────────────────────────────────────────
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') {
     console.log(`[SW] Aplicando nueva versión ${APP_VERSION}`)
@@ -57,7 +66,7 @@ self.addEventListener('message', (event) => {
   }
 })
 
-// ── Fetch: estrategia por tipo de request ────────────────────────────────────
+// ── Fetch ─────────────────────────────────────────────────────────────────────
 self.addEventListener('fetch', (event) => {
   const { request } = event
   const url = new URL(request.url)
@@ -66,7 +75,6 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(networkFirstApi(request))
     return
   }
-
   if (
     request.destination === 'script' ||
     request.destination === 'style' ||
@@ -76,14 +84,13 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(cacheFirst(request))
     return
   }
-
   if (request.mode === 'navigate') {
     event.respondWith(navigationHandler(request))
     return
   }
 })
 
-// ── Estrategias de caché ─────────────────────────────────────────────────────
+// ── Estrategias de caché ──────────────────────────────────────────────────────
 async function networkFirstApi(request) {
   try {
     const response = await fetch(request.clone())
@@ -102,7 +109,6 @@ async function networkFirstApi(request) {
   } catch {
     const cached = await caches.match(request)
     if (cached) return cached
-
     if (request.method === 'POST' && request.url.includes('/api/checkin')) {
       await enqueueOfflineVisita(request)
       return new Response(
@@ -110,7 +116,6 @@ async function networkFirstApi(request) {
         { headers: { 'Content-Type': 'application/json' } }
       )
     }
-
     return new Response(
       JSON.stringify({ error: 'Sin conexión', offline: true }),
       { status: 503, headers: { 'Content-Type': 'application/json' } }
@@ -135,8 +140,7 @@ async function cacheFirst(request) {
 
 async function navigationHandler(request) {
   try {
-    const response = await fetch(request)
-    return response
+    return await fetch(request)
   } catch {
     const cached = await caches.match(request)
     if (cached) return cached
@@ -147,7 +151,7 @@ async function navigationHandler(request) {
   }
 }
 
-// ── Queue de visitas offline ─────────────────────────────────────────────────
+// ── Queue offline ─────────────────────────────────────────────────────────────
 async function enqueueOfflineVisita(request) {
   try {
     const body = await request.clone().json()
@@ -180,7 +184,7 @@ async function saveOfflineQueue(queue) {
   }))
 }
 
-// ── Background Sync ──────────────────────────────────────────────────────────
+// ── Background Sync ───────────────────────────────────────────────────────────
 self.addEventListener('sync', (event) => {
   if (event.tag === 'sync-visitas') {
     event.waitUntil(syncVisitas())
@@ -190,9 +194,7 @@ self.addEventListener('sync', (event) => {
 async function syncVisitas() {
   const queue = await getOfflineQueue()
   if (queue.length === 0) return
-
   const pendientes = []
-
   for (const item of queue) {
     try {
       const res = await fetch(item.url, {
@@ -205,9 +207,7 @@ async function syncVisitas() {
       pendientes.push(item)
     }
   }
-
   await saveOfflineQueue(pendientes)
-
   const clients = await self.clients.matchAll()
   clients.forEach(client => {
     client.postMessage({
