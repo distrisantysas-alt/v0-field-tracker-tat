@@ -1,16 +1,18 @@
 "use client"
 
 // ============================================================================
-// components/supervisor/supervisor-layout.tsx
-// ✅ Todo lo anterior + Tab "Mapa" con ubicación en tiempo real de asesores
+// components/supervisor/supervisor-layout.tsx — MÓVIL FIRST
+// ✅ Todo lo anterior +
+// ✅ Foto de visita visible en perfil de asesor
+// ✅ Reporte por días
 // ============================================================================
 
-import { useState, useEffect, useRef } from "react"
+import { useState } from "react"
 import useSWR from "swr"
 import {
   Users, AlertTriangle, FileText, ChevronLeft, ChevronRight,
   Loader2, Check, TrendingUp, Eye, ShoppingBag, DollarSign,
-  ImageIcon, Camera, Map
+  ImageIcon, Camera
 } from "lucide-react"
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
@@ -26,7 +28,8 @@ function formatFecha(fechaStr: string): string {
   return fecha.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
-type TabId = "equipo" | "mapa" | "alertas" | "reportes"
+type TabId = "equipo" | "alertas" | "reportes"
+
 interface SupervisorLayoutProps { onBack: () => void }
 
 // ============================================================================
@@ -43,10 +46,9 @@ export function SupervisorLayout({ onBack }: SupervisorLayoutProps) {
   const alertaCount = data?.alertas?.length ?? 0
 
   const tabs = [
-    { id: "equipo"   as TabId, label: "Equipo",  icon: Users        },
-    { id: "mapa"     as TabId, label: "Mapa",    icon: Map          },
-    { id: "alertas"  as TabId, label: "Alertas", icon: AlertTriangle },
-    { id: "reportes" as TabId, label: "Reportes",icon: FileText     },
+    { id: "equipo"   as TabId, label: "Mi Equipo", icon: Users        },
+    { id: "alertas"  as TabId, label: "Alertas",   icon: AlertTriangle },
+    { id: "reportes" as TabId, label: "Reportes",  icon: FileText     },
   ]
 
   return (
@@ -94,15 +96,19 @@ export function SupervisorLayout({ onBack }: SupervisorLayoutProps) {
         {tabs.map(t => {
           const Icon = t.icon
           return (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              className={`relative flex flex-1 items-center justify-center gap-1 py-3 text-[11px] font-medium transition-colors border-b-2 ${
-                tab === t.id ? "border-navy-accent text-navy-accent" : "border-transparent text-gray-500 hover:text-gray-300"
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`relative flex flex-1 items-center justify-center gap-1.5 py-3 text-xs font-medium transition-colors border-b-2 ${
+                tab === t.id
+                  ? "border-navy-accent text-navy-accent"
+                  : "border-transparent text-gray-500 hover:text-gray-300"
               }`}
             >
               <Icon className="h-3.5 w-3.5" />
               {t.label}
               {t.id === "alertas" && alertaCount > 0 && (
-                <span className="absolute right-1 top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-bold text-white">
+                <span className="absolute right-2 top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-bold text-white">
                   {alertaCount}
                 </span>
               )}
@@ -120,153 +126,11 @@ export function SupervisorLayout({ onBack }: SupervisorLayoutProps) {
         ) : (
           <>
             {tab === "equipo"   && <EquipoView   data={data} />}
-            {tab === "mapa"     && <MapaAsesores />}
             {tab === "alertas"  && <AlertasView  data={data} />}
             {tab === "reportes" && <ReportesView data={data} />}
           </>
         )}
       </div>
-    </div>
-  )
-}
-
-// ============================================================================
-// MAPA DE ASESORES EN TIEMPO REAL
-// ============================================================================
-function MapaAsesores() {
-  const mapRef        = useRef<HTMLDivElement>(null)
-  const leafletRef    = useRef<any>(null)
-  const markersRef    = useRef<Map<string, any>>(new Map())
-  const [mapReady, setMapReady] = useState(false)
-  const [asesorSel, setAsesorSel] = useState<any>(null)
-
-  const { data, isLoading } = useSWR('/api/ubicacion-asesor', fetcher, { refreshInterval: 30000 })
-  const ubicaciones = data?.ubicaciones ?? []
-
-  // Cargar Leaflet
-  useEffect(() => {
-    if (typeof window === "undefined" || leafletRef.current) return
-    if (!document.getElementById('leaflet-css')) {
-      const link = document.createElement('link')
-      link.id = 'leaflet-css'; link.rel = 'stylesheet'
-      link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'
-      document.head.appendChild(link)
-    }
-    const script = document.createElement('script')
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'
-    script.onload = () => { leafletRef.current = (window as any).L; setMapReady(true) }
-    document.head.appendChild(script)
-  }, [])
-
-  // Inicializar mapa
-  useEffect(() => {
-    if (!mapReady || !mapRef.current || !leafletRef.current) return
-    if ((mapRef.current as any)._leaflet_id) return
-    const L = leafletRef.current
-    const map = L.map(mapRef.current, { center: [7.119, -73.1227], zoom: 13 })
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap', maxZoom: 19
-    }).addTo(map)
-    ;(mapRef.current as any)._mapInstance = map
-  }, [mapReady])
-
-  // Actualizar pins de asesores
-  useEffect(() => {
-    if (!mapReady || !ubicaciones.length) return
-    const map = (mapRef.current as any)?._mapInstance
-    const L = leafletRef.current
-    if (!map || !L) return
-
-    ubicaciones.forEach((u: any) => {
-      const minutos = Math.round(u.minutos_atras ?? 0)
-      const activo  = minutos <= 10
-      const color   = activo ? '#1A7A4A' : minutos <= 30 ? '#D97706' : '#4B5563'
-      const initials = getInitials(u.nombre)
-
-      const icon = L.divIcon({
-        className: '',
-        html: `<div style="position:relative">
-          <div style="background:${color};border:2px solid white;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.4);">
-            <span style="font-size:11px;font-weight:700;color:#fff;font-family:sans-serif;">${initials}</span>
-          </div>
-          ${activo ? `<div style="position:absolute;bottom:-2px;right:-2px;width:10px;height:10px;background:#1A7A4A;border:2px solid white;border-radius:50%;"></div>` : ''}
-        </div>`,
-        iconSize: [36, 36], iconAnchor: [18, 18],
-      })
-
-      if (markersRef.current.has(u.asesor_id)) {
-        const marker = markersRef.current.get(u.asesor_id)
-        marker.setLatLng([u.lat, u.lng])
-        marker.setIcon(icon)
-      } else {
-        const marker = L.marker([u.lat, u.lng], { icon }).addTo(map)
-        marker.on('click', () => setAsesorSel(u))
-        markersRef.current.set(u.asesor_id, marker)
-      }
-    })
-
-    if (ubicaciones.length > 0 && markersRef.current.size > 0) {
-      const arr = Array.from(markersRef.current.values())
-      const group = L.featureGroup(arr)
-      map.fitBounds(group.getBounds().pad(0.2))
-    }
-  }, [mapReady, data])
-
-  return (
-    <div className="flex flex-col" style={{ height: 'calc(100vh - 200px)' }}>
-
-      {/* Leyenda */}
-      <div className="flex items-center gap-4 px-4 py-2 border-b border-white/10 bg-dark-surface">
-        <div className="flex items-center gap-1.5">
-          <div className="h-2.5 w-2.5 rounded-full bg-success" />
-          <span className="text-[11px] text-gray-400">Activo (&lt;10 min)</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="h-2.5 w-2.5 rounded-full bg-warning" />
-          <span className="text-[11px] text-gray-400">&lt;30 min</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="h-2.5 w-2.5 rounded-full bg-gray-500" />
-          <span className="text-[11px] text-gray-400">Inactivo</span>
-        </div>
-        <span className="ml-auto text-[11px] text-gray-500">{ubicaciones.length} asesores</span>
-      </div>
-
-      {/* Mapa */}
-      <div className="relative flex-1">
-        {(isLoading || !mapReady) && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-dark-bg">
-            <Loader2 className="h-7 w-7 animate-spin text-navy-accent" />
-          </div>
-        )}
-        {!isLoading && ubicaciones.length === 0 && mapReady && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-dark-bg gap-2">
-            <Map className="h-10 w-10 text-gray-600" />
-            <p className="text-sm text-gray-400">Ningún asesor activo ahora</p>
-            <p className="text-xs text-gray-600">Las ubicaciones aparecen cuando los asesores abren la app</p>
-          </div>
-        )}
-        <div ref={mapRef} className="h-full w-full" />
-      </div>
-
-      {/* Tarjeta asesor seleccionado */}
-      {asesorSel && (
-        <div className="absolute bottom-0 left-0 right-0 z-[1000] rounded-t-2xl border-t border-white/10 bg-dark-surface p-4 shadow-2xl">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-navy-accent/20 text-sm font-bold text-navy-accent">
-              {getInitials(asesorSel.nombre)}
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-bold text-white">{asesorSel.nombre}</p>
-              <p className="text-xs text-gray-400">{asesorSel.zona || 'Sin zona'}</p>
-              <p className="text-[10px] text-gray-500 mt-0.5">
-                Última ubicación: hace {Math.round(asesorSel.minutos_atras ?? 0)} min
-              </p>
-            </div>
-            <button onClick={() => setAsesorSel(null)} className="text-gray-500 hover:text-white p-1">✕</button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -291,8 +155,11 @@ function EquipoView({ data }: { data: any }) {
         </div>
       ) : (
         equipo.map((a: any) => (
-          <button key={a.id} onClick={() => setAsesorSel(a)}
-            className="flex w-full items-center gap-3 rounded-xl bg-dark-surface border border-white/10 p-4 text-left hover:border-navy-accent/50 transition-all active:scale-[0.98]">
+          <button
+            key={a.id}
+            onClick={() => setAsesorSel(a)}
+            className="flex w-full items-center gap-3 rounded-xl bg-dark-surface border border-white/10 p-4 text-left hover:border-navy-accent/50 transition-all active:scale-[0.98]"
+          >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-navy-accent/20 text-sm font-bold text-navy-accent">
               {getInitials(a.nombre)}
             </div>
@@ -300,13 +167,21 @@ function EquipoView({ data }: { data: any }) {
               <p className="text-sm font-semibold text-white truncate">{a.nombre}</p>
               <p className="text-xs text-gray-500">{a.zona || 'Sin zona'}</p>
               <div className="mt-1.5 h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
-                <div className={`h-full rounded-full transition-all ${a.cumplimiento >= 80 ? 'bg-success' : a.cumplimiento >= 60 ? 'bg-warning' : 'bg-danger'}`}
-                  style={{ width: `${Math.min(a.cumplimiento, 100)}%` }} />
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    a.cumplimiento >= 80 ? 'bg-success' :
+                    a.cumplimiento >= 60 ? 'bg-warning' : 'bg-danger'
+                  }`}
+                  style={{ width: `${Math.min(a.cumplimiento, 100)}%` }}
+                />
               </div>
             </div>
             <div className="shrink-0 text-right">
               <p className="text-sm font-bold text-white">{a.visitas_hoy}/{a.clientes_asignados}</p>
-              <p className={`text-xs font-bold ${a.cumplimiento >= 80 ? 'text-success' : a.cumplimiento >= 60 ? 'text-warning' : 'text-danger'}`}>{a.cumplimiento}%</p>
+              <p className={`text-xs font-bold ${
+                a.cumplimiento >= 80 ? 'text-success' :
+                a.cumplimiento >= 60 ? 'text-warning' : 'text-danger'
+              }`}>{a.cumplimiento}%</p>
             </div>
             <ChevronRight className="h-4 w-4 text-gray-600 shrink-0" />
           </button>
@@ -317,22 +192,26 @@ function EquipoView({ data }: { data: any }) {
 }
 
 // ============================================================================
-// PERFIL ASESOR
+// PERFIL ASESOR — con foto en visitas y reporte por días
 // ============================================================================
 function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
   const fecha = fechaColombia()
   const [fotoAmpliada, setFotoAmpliada] = useState<string | null>(null)
 
   const hace7Dias = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)
-    .toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
+    .toLocaleString('en-CA', { timeZone: 'America/Bogota' })
+    .split(',')[0];
 
   const { data, isLoading } = useSWR(
     `/api/resumen-dia?asesor_id=${asesor.id}&fecha=${fecha}`,
-    fetcher, { refreshInterval: 30000 }
+    fetcher,
+    { refreshInterval: 30000 }
   )
+
   const { data: semanaData } = useSWR(
     `/api/resumen-dia?asesor_id=${asesor.id}&fecha_inicio=${hace7Dias}&fecha_fin=${fecha}&rango=true`,
-    fetcher, { refreshInterval: 60000 }
+    fetcher,
+    { refreshInterval: 60000 }
   )
 
   const reporteDias = Array.from({ length: 7 }, (_, i) => {
@@ -340,26 +219,35 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
     const fechaStr = d.toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
     const diaData = semanaData?.por_dia?.find((x: any) => x.fecha?.toString().startsWith(fechaStr))
     return {
-      fecha: fechaStr,
-      visitas: diaData?.visitas ?? 0,
-      pedidos: diaData?.pedidos ?? 0,
-      vendido: diaData?.vendido ?? 0,
+      fecha:           fechaStr,
+      visitas:         diaData?.visitas  ?? 0,
+      pedidos:         diaData?.pedidos  ?? 0,
+      vendido:         diaData?.vendido  ?? 0,
       vendido_formato: diaData?.vendido_formato ?? '$0',
-      esHoy: fechaStr === fecha,
+      esHoy:           fechaStr === fecha,
     }
   })
 
   return (
     <div className="p-4 space-y-4">
+
+      {/* Foto ampliada modal */}
       {fotoAmpliada && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90" onClick={() => setFotoAmpliada(null)}>
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90"
+          onClick={() => setFotoAmpliada(null)}
+        >
           <div className="relative w-full max-w-lg px-4">
             <img src={fotoAmpliada} alt="Foto visita" className="w-full rounded-2xl object-contain max-h-[80vh]" />
-            <button className="absolute top-2 right-6 flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-white" onClick={() => setFotoAmpliada(null)}>✕</button>
+            <button
+              className="absolute top-2 right-6 flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-white"
+              onClick={() => setFotoAmpliada(null)}
+            >✕</button>
           </div>
         </div>
       )}
 
+      {/* Header */}
       <div className="flex items-center gap-3">
         <button onClick={onBack} className="flex h-9 w-9 items-center justify-center rounded-xl bg-dark-surface text-gray-400">
           <ChevronLeft className="h-5 w-5" />
@@ -374,9 +262,13 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
       </div>
 
       {isLoading ? (
-        <div className="flex h-32 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-navy-accent" /></div>
+        <div className="flex h-32 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-navy-accent" />
+        </div>
       ) : data ? (
         <div className="space-y-4">
+
+          {/* KPIs hoy */}
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl bg-dark-surface border border-white/10 p-4 text-center">
               <p className="text-xs text-gray-500">Visitas hoy</p>
@@ -396,6 +288,7 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
             </div>
           </div>
 
+          {/* Reporte 7 días */}
           <div>
             <h3 className="text-sm font-semibold text-white mb-3">Últimos 7 días</h3>
             <div className="rounded-xl bg-dark-surface border border-white/10 overflow-hidden">
@@ -426,15 +319,21 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
             </div>
           </div>
 
+          {/* Visitas del día con foto */}
           {(data.visitas?.length ?? 0) > 0 && (
             <div className="rounded-xl bg-dark-surface border border-white/10 overflow-hidden">
-              <p className="px-4 py-3 text-sm font-semibold text-white border-b border-white/10">Visitas de hoy</p>
+              <p className="px-4 py-3 text-sm font-semibold text-white border-b border-white/10">
+                Visitas de hoy
+              </p>
               <div className="divide-y divide-white/5">
                 {data.visitas.map((v: any) => (
                   <div key={v.id} className="px-4 py-3 space-y-2">
                     <div className="flex items-center gap-3">
                       <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${v.ubicacion?.validada ? 'bg-success/20' : 'bg-warning/20'}`}>
-                        {v.ubicacion?.validada ? <Check className="h-3.5 w-3.5 text-success" /> : <AlertTriangle className="h-3.5 w-3.5 text-warning" />}
+                        {v.ubicacion?.validada
+                          ? <Check className="h-3.5 w-3.5 text-success" />
+                          : <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+                        }
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-white truncate">{v.cliente?.nombre}</p>
@@ -442,12 +341,28 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
                       </div>
                       <div className="text-right shrink-0">
                         <p className="text-xs font-mono text-gray-400">{v.hora}</p>
-                        {v.pedido?.hubo_pedido && <p className="text-xs text-success font-medium">{v.pedido?.valor_formato}</p>}
+                        {v.pedido?.hubo_pedido && (
+                          <p className="text-xs text-success font-medium">{v.pedido?.valor_formato}</p>
+                        )}
                       </div>
                     </div>
+
+                    {/* Foto de la visita */}
                     {v.foto_url ? (
-                      <button onClick={() => setFotoAmpliada(v.foto_url)} className="w-full rounded-xl overflow-hidden border border-white/10 relative group">
-                        <img src={v.foto_url} alt="Foto visita" className="w-full object-cover h-32" />
+                      <button
+                        onClick={() => setFotoAmpliada(v.foto_url)}
+                        className="w-full rounded-xl overflow-hidden border border-white/10 relative group"
+                      >
+                        <img
+                          src={v.foto_url}
+                          alt="Foto visita"
+                          className="w-full object-cover h-32"
+                        />
+                        <div className="absolute inset-0 bg-black/0 group-active:bg-black/20 transition-colors flex items-center justify-center">
+                          <div className="opacity-0 group-active:opacity-100 bg-black/50 rounded-full p-2">
+                            <ImageIcon className="h-5 w-5 text-white" />
+                          </div>
+                        </div>
                         <div className="absolute bottom-2 right-2 bg-black/50 rounded-lg px-2 py-0.5">
                           <p className="text-[10px] text-white">Toca para ampliar</p>
                         </div>
@@ -458,7 +373,11 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
                         <p className="text-[10px] text-gray-600">Sin foto en esta visita</p>
                       </div>
                     )}
-                    {v.notas && <p className="text-[10px] text-gray-500 italic px-1">"{v.notas}"</p>}
+
+                    {/* Notas */}
+                    {v.notas && (
+                      <p className="text-[10px] text-gray-500 italic px-1">"{v.notas}"</p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -477,6 +396,7 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
 // ============================================================================
 function AlertasView({ data }: { data: any }) {
   const alertas = data?.alertas ?? []
+
   return (
     <div className="p-4 space-y-3">
       <p className="text-xs text-gray-500">
@@ -517,7 +437,13 @@ function ReportesView({ data }: { data: any }) {
     if (!equipo.length) return
     const filas = [
       ['Asesor', 'Zona', 'Visitas hoy', 'Clientes asignados', 'Cumplimiento %'],
-      ...equipo.map((a: any) => [a.nombre, a.zona || '—', a.visitas_hoy, a.clientes_asignados, `${a.cumplimiento}%`])
+      ...equipo.map((a: any) => [
+        a.nombre,
+        a.zona || '—',
+        a.visitas_hoy,
+        a.clientes_asignados,
+        `${a.cumplimiento}%`
+      ])
     ]
     descargarCSV(filas, `reporte-diario-${fecha}.csv`)
   }
@@ -526,31 +452,59 @@ function ReportesView({ data }: { data: any }) {
     <div className="p-4 space-y-3">
       <p className="text-xs text-gray-500">Genera y descarga reportes de tu equipo</p>
       <div className="grid grid-cols-2 gap-3">
-        <button onClick={descargarReporteDiario}
-          className="flex flex-col rounded-xl bg-dark-surface border border-white/10 p-4 text-left hover:border-navy-accent/50 transition-all active:scale-[0.98]">
+        <button
+          onClick={descargarReporteDiario}
+          className="flex flex-col rounded-xl bg-dark-surface border border-white/10 p-4 text-left hover:border-navy-accent/50 transition-all active:scale-[0.98]"
+        >
           <FileText className="mb-2 h-6 w-6 text-navy-accent" />
           <p className="text-sm font-semibold text-white">Reporte Diario</p>
           <p className="text-xs text-gray-500 mb-3">Visitas del día</p>
-          <span className="mt-auto rounded-lg bg-navy-accent px-3 py-2 text-xs font-semibold text-white text-center">Descargar CSV</span>
+          <span className="mt-auto rounded-lg bg-navy-accent px-3 py-2 text-xs font-semibold text-white text-center">
+            Descargar CSV
+          </span>
         </button>
-        {['Semanal', 'Cumplimiento TAT', 'Incidencias'].map(label => (
-          <div key={label} className="flex flex-col rounded-xl bg-dark-surface border border-white/10 p-4 opacity-50">
-            <FileText className="mb-2 h-6 w-6 text-gray-500" />
-            <p className="text-sm font-semibold text-white">{label}</p>
-            <p className="text-xs text-gray-500 mb-3">Próximamente</p>
-            <span className="mt-auto rounded-lg bg-gray-700 px-3 py-2 text-xs font-semibold text-gray-400 text-center">Pronto</span>
-          </div>
-        ))}
+
+        <div className="flex flex-col rounded-xl bg-dark-surface border border-white/10 p-4 opacity-50">
+          <FileText className="mb-2 h-6 w-6 text-gray-500" />
+          <p className="text-sm font-semibold text-white">Reporte Semanal</p>
+          <p className="text-xs text-gray-500 mb-3">Próximamente</p>
+          <span className="mt-auto rounded-lg bg-gray-700 px-3 py-2 text-xs font-semibold text-gray-400 text-center">
+            Pronto
+          </span>
+        </div>
+
+        <div className="flex flex-col rounded-xl bg-dark-surface border border-white/10 p-4 opacity-50">
+          <FileText className="mb-2 h-6 w-6 text-gray-500" />
+          <p className="text-sm font-semibold text-white">Cumplimiento TAT</p>
+          <p className="text-xs text-gray-500 mb-3">Próximamente</p>
+          <span className="mt-auto rounded-lg bg-gray-700 px-3 py-2 text-xs font-semibold text-gray-400 text-center">
+            Pronto
+          </span>
+        </div>
+
+        <div className="flex flex-col rounded-xl bg-dark-surface border border-white/10 p-4 opacity-50">
+          <FileText className="mb-2 h-6 w-6 text-gray-500" />
+          <p className="text-sm font-semibold text-white">Incidencias</p>
+          <p className="text-xs text-gray-500 mb-3">Próximamente</p>
+          <span className="mt-auto rounded-lg bg-gray-700 px-3 py-2 text-xs font-semibold text-gray-400 text-center">
+            Pronto
+          </span>
+        </div>
       </div>
     </div>
   )
 }
 
+// ── Helper CSV ────────────────────────────────────────────────────────────────
 function descargarCSV(filas: any[][], nombreArchivo: string) {
-  const contenido = filas.map(fila => fila.map(celda => `"${String(celda).replace(/"/g, '""')}"`).join(',')).join('\n')
+  const contenido = filas
+    .map(fila => fila.map(celda => `"${String(celda).replace(/"/g, '""')}"`).join(','))
+    .join('\n')
   const blob = new Blob(['\uFEFF' + contenido], { type: 'text/csv;charset=utf-8;' })
   const url  = URL.createObjectURL(blob)
   const a    = document.createElement('a')
-  a.href = url; a.download = nombreArchivo; a.click()
+  a.href     = url
+  a.download = nombreArchivo
+  a.click()
   URL.revokeObjectURL(url)
 }
