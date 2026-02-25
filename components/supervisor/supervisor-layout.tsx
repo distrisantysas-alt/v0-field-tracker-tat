@@ -5,15 +5,27 @@
 // ✅ Todo lo anterior +
 // ✅ Foto de visita visible en perfil de asesor
 // ✅ Reporte por días
+// ✅ Tab "Mapa" con ubicación en tiempo real de asesores
 // ============================================================================
 
 import { useState } from "react"
+import dynamic from "next/dynamic"
 import useSWR from "swr"
 import {
   Users, AlertTriangle, FileText, ChevronLeft, ChevronRight,
   Loader2, Check, TrendingUp, Eye, ShoppingBag, DollarSign,
-  ImageIcon, Camera
+  ImageIcon, Camera, Map
 } from "lucide-react"
+
+// ✅ Dynamic import — Leaflet solo carga en el cliente, nunca en servidor
+const MapaAsesores = dynamic(() => import('./supervisor-mapa-asesores'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-64 items-center justify-center">
+      <Loader2 className="h-7 w-7 animate-spin text-navy-accent" />
+    </div>
+  )
+})
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
@@ -28,7 +40,7 @@ function formatFecha(fechaStr: string): string {
   return fecha.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
-type TabId = "equipo" | "alertas" | "reportes"
+type TabId = "equipo" | "mapa" | "alertas" | "reportes"
 
 interface SupervisorLayoutProps { onBack: () => void }
 
@@ -47,6 +59,7 @@ export function SupervisorLayout({ onBack }: SupervisorLayoutProps) {
 
   const tabs = [
     { id: "equipo"   as TabId, label: "Mi Equipo", icon: Users        },
+    { id: "mapa"     as TabId, label: "Mapa",      icon: Map          },
     { id: "alertas"  as TabId, label: "Alertas",   icon: AlertTriangle },
     { id: "reportes" as TabId, label: "Reportes",  icon: FileText     },
   ]
@@ -119,13 +132,14 @@ export function SupervisorLayout({ onBack }: SupervisorLayoutProps) {
 
       {/* Contenido */}
       <div className="flex-1 overflow-y-auto">
-        {isLoading ? (
+        {isLoading && tab !== "mapa" ? (
           <div className="flex h-64 items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-navy-accent" />
           </div>
         ) : (
           <>
             {tab === "equipo"   && <EquipoView   data={data} />}
+            {tab === "mapa"     && <MapaAsesores />}
             {tab === "alertas"  && <AlertasView  data={data} />}
             {tab === "reportes" && <ReportesView data={data} />}
           </>
