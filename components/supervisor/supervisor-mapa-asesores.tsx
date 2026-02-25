@@ -16,7 +16,7 @@ function getInitials(nombre: string) {
 export default function SupervisorMapaAsesores() {
   const mapRef     = useRef<HTMLDivElement>(null)
   const leafletRef = useRef<any>(null)
-  const markersRef = useRef<Map<string, any>>(new Map())
+  const markersRef = useRef<Record<string, any>>({})
   const [mapReady, setMapReady]   = useState(false)
   const [asesorSel, setAsesorSel] = useState<any>(null)
 
@@ -74,18 +74,18 @@ export default function SupervisorMapaAsesores() {
         iconSize: [36, 36], iconAnchor: [18, 18],
       })
 
-      if (markersRef.current.has(u.asesor_id)) {
-        const marker = markersRef.current.get(u.asesor_id)
+      if (u.asesor_id in markersRef.current) {
+        const marker = markersRef.current[u.asesor_id]
         marker.setLatLng([u.lat, u.lng])
         marker.setIcon(icon)
       } else {
         const marker = L.marker([u.lat, u.lng], { icon }).addTo(map)
         marker.on('click', () => setAsesorSel(u))
-        markersRef.current.set(u.asesor_id, marker)
+        markersRef.current[u.asesor_id] = marker
       }
     })
 
-    const arr = Array.from(markersRef.current.values())
+    const arr = Object.values(markersRef.current)
     if (arr.length > 0) {
       const group = L.featureGroup(arr)
       map.fitBounds(group.getBounds().pad(0.2))
