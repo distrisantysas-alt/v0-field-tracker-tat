@@ -153,6 +153,33 @@ export function MiRuta({ asesor }: MiRutaProps) {
     return () => clearInterval(t)
   }, [])
 
+  // ── Enviar ubicación al supervisor cada 2 minutos ─────────────────────────
+  useEffect(() => {
+    const enviar = () => {
+      if (!navigator.geolocation) return
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          try {
+            await fetch('/api/ubicacion-asesor', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                asesor_id: ASESOR_ID,
+                lat: pos.coords.latitude,
+                lng: pos.coords.longitude,
+              }),
+            })
+          } catch {}
+        },
+        () => {},
+        { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+      )
+    }
+    enviar()
+    const t = setInterval(enviar, 2 * 60 * 1000)
+    return () => clearInterval(t)
+  }, [ASESOR_ID])
+
   const todosClientes: ClienteConEstado[] = data?.clientes ?? []
   const stats = data?.stats ?? { total: 0, validadas: 0, sospechosas: 0, pendientes: 0 }
 
