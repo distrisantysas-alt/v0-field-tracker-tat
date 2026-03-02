@@ -4,6 +4,7 @@
 // Si hay rutas asignadas en rutas_dia → las usa (con orden)
 // Si NO hay rutas → devuelve TODOS los clientes asignados al asesor
 // ✅ Incluye foto_url de la visita del día
+// ✅ Incluye clientes compartidos vía asesor_clientes
 // ============================================================================
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
@@ -24,7 +25,6 @@ export async function GET(req: NextRequest) {
     WHERE asesor_id = ${asesorId}
       AND fecha = ${fecha}::date
   `;
-
   const tieneRutas = parseInt(rutasCount[0]?.total ?? '0') > 0;
 
   let clientes;
@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
       ORDER BY r.orden ASC
     `;
   } else {
-    // ── Sin rutas_dia: todos los clientes asignados al asesor ────────────
+    // ── Sin rutas_dia: clientes propios + clientes compartidos ───────────
     clientes = await sql`
       SELECT
         c.id,
@@ -80,7 +80,33 @@ export async function GET(req: NextRequest) {
         AND v.timestamp::date = ${fecha}::date
       WHERE c.asesor_id = ${asesorId}
         AND c.activo = true
-      ORDER BY c.nombre ASC
+
+      UNION
+
+      SELECT
+        c.id,
+        c.codigo,
+        c.nombre,
+        c.direccion,
+        c.lat,
+        c.lng,
+        c.radio_metros,
+        0 AS orden,
+        false AS completada,
+        v.validada,
+        v.distancia_metros,
+        v.timestamp AS visitado_en,
+        v.foto_url
+      FROM asesor_clientes ac
+      JOIN clientes c ON c.id = ac.cliente_id
+      LEFT JOIN visitas v
+        ON v.cliente_id = c.id
+        AND v.asesor_id = ${asesorId}
+        AND v.timestamp::date = ${fecha}::date
+      WHERE ac.asesor_id = ${asesorId}
+        AND c.activo = true
+
+      ORDER BY nombre ASC
     `;
   }
 
