@@ -2,7 +2,7 @@
 
 // ============================================================================
 // components/gerencia/gerencia-layout.tsx — COMPLETO CON ADMIN INTEGRADO
-// Pestañas: Dashboard · Equipo · Zonas · Asesores (admin) · Importar
+// Pestañas: Dashboard · Equipo · Zonas · Asesores (admin) · Importar · Compartir
 // ============================================================================
 
 import { useState, useEffect } from "react"
@@ -12,7 +12,7 @@ import {
   ChevronLeft, ChevronRight, Loader2, AlertTriangle,
   Check, TrendingUp, DollarSign, Search, X,
   UserPlus, RefreshCw, Edit2, UserX, ArrowRight,
-  MapPin, CheckCircle, AlertCircle, FileUp
+  MapPin, CheckCircle, AlertCircle, FileUp, Share2
 } from "lucide-react"
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
@@ -31,7 +31,7 @@ function getNombreSinRuta(nombre: string) {
   return partes.length > 1 ? partes.slice(1).join(' ') : nombre
 }
 
-type Tab = "dashboard" | "equipo" | "zonas" | "asesores" | "importar"
+type Tab = "dashboard" | "equipo" | "zonas" | "asesores" | "importar" | "compartir"
 
 interface GerenciaLayoutProps { onBack: () => void }
 
@@ -46,6 +46,7 @@ export function GerenciaLayout({ onBack }: GerenciaLayoutProps) {
     { id: "zonas"     as Tab, label: "Zonas",       icon: Map        },
     { id: "asesores"  as Tab, label: "Asesores",    icon: Settings   },
     { id: "importar"  as Tab, label: "Importar",    icon: Upload     },
+    { id: "compartir" as Tab, label: "Compartir",   icon: Share2     },
   ]
 
   return (
@@ -91,6 +92,7 @@ export function GerenciaLayout({ onBack }: GerenciaLayoutProps) {
         {tab === "zonas"     && <TabZonas     fecha={fecha} />}
         {tab === "asesores"  && <TabAsesores  />}
         {tab === "importar"  && <TabImportar  />}
+        {tab === "compartir" && <TabCompartir />}
       </div>
     </div>
   )
@@ -852,6 +854,213 @@ function TabImportar() {
       <button onClick={handleImport} disabled={!file || loading}
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-success py-3 font-bold text-dark-bg transition-all active:scale-[0.97] disabled:opacity-40">
         {loading ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Importando...</span></> : <><Upload className="h-4 w-4" /><span>INICIAR IMPORTACIÓN</span></>}
+      </button>
+    </div>
+  )
+}
+
+// ============================================================================
+// TAB: COMPARTIR RUTA
+// ============================================================================
+function TabCompartir() {
+  const { data, isLoading } = useSWR('/api/admin/asesores', fetcher)
+
+  const asesores = (data?.asesores || []).filter((a: any) =>
+    a.nombre && !a.nombre.match(/^(lunes|martes|mi|sábado|jueves|viernes|domingo)/i) && a.activo
+  )
+
+  const [asesorOrigen, setAsesorOrigen]   = useState("")
+  const [asesorDest, setAsesorDest]       = useState("")
+  const [clientes, setClientes]           = useState<any[]>([])
+  const [cargandoClientes, setCargandoClientes] = useState(false)
+  const [rutasSel, setRutasSel]           = useState<string[]>([])
+  const [loading, setLoading]             = useState(false)
+  const [resultado, setResultado]         = useState<any>(null)
+  const [error, setError]                 = useState("")
+
+  // Cargar clientes del asesor origen
+  useEffect(() => {
+    if (!asesorOrigen) { setClientes([]); setRutasSel([]); return }
+    setCargandoClientes(true)
+    const cargar = async () => {
+      const BATCH = 1000
+      let offset = 0
+      let acumulados: any[] = []
+      while (true) {
+        const res = await fetch(`/api/admin/clientes?asesor_id=${asesorOrigen}&limit=${BATCH}&offset=${offset}`)
+        const d = await res.json()
+        acumulados = [...acumulados, ...(d?.clientes || [])]
+        if (!d?.pagination?.has_more) break
+        offset += BATCH
+      }
+      setClientes(acumulados)
+      setRutasSel([])
+      setCargandoClientes(false)
+    }
+    cargar()
+  }, [asesorOrigen])
+
+  const rutasUnicas: string[] = Array.from(new Set(clientes.map((c: any) => getRuta(c.nombre))))
+    .filter((r: any) => r !== '—')
+    .sort((a: any, b: any) => (a as string).localeCompare(b as string, undefined, { numeric: true })) as string[]
+
+  const toggleRuta = (r: string) => {
+    setRutasSel(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r])
+  }
+
+  const clientesAfectados = clientes.filter((c: any) => rutasSel.includes(getRuta(c.nombre))).length
+
+  const handleCompartir = async () => {
+    if (!asesorOrigen) { setError("Selecciona el asesor origen"); return }
+    if (!asesorDest)   { setError("Selecciona el asesor destino"); return }
+    if (asesorOrigen === asesorDest) { setError("El asesor origen y destino no pueden ser el mismo"); return }
+    if (rutasSel.length === 0) { setError("Selecciona al menos una ruta"); return }
+    setLoading(true)
+    setError("")
+    try {
+      const res = await fetch('/api/admin/compartir-ruta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          asesor_origen_id:  asesorOrigen,
+          asesor_destino_id: asesorDest,
+          rutas:             rutasSel,
+        }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error)
+      setResultado(d)
+    } catch (e: any) {
+      setError(e.message || "Error compartiendo ruta")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const resetear = () => {
+    setAsesorOrigen(""); setAsesorDest(""); setClientes([])
+    setRutasSel([]); setResultado(null); setError("")
+  }
+
+  if (resultado) {
+    return (
+      <div className="p-4 space-y-4">
+        <div className="rounded-xl bg-success/10 border border-success/30 p-6 text-center space-y-2">
+          <CheckCircle className="h-12 w-12 text-success mx-auto" />
+          <p className="text-lg font-bold text-white">{resultado.compartidos} clientes compartidos</p>
+          <p className="text-sm text-gray-400">
+            <span className="text-white">{resultado.asesor_origen}</span> → <span className="text-white">{resultado.asesor_destino}</span>
+          </p>
+          <p className="text-xs text-gray-500">Los clientes originales no fueron movidos ni modificados</p>
+        </div>
+        <button onClick={resetear} className="w-full rounded-xl bg-navy-accent py-3 font-semibold text-white">
+          Compartir otra ruta
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-4 space-y-4 pb-32">
+      <div>
+        <h2 className="text-base font-bold text-white">Compartir ruta</h2>
+        <p className="text-xs text-gray-500 mt-0.5">Los clientes se comparten sin mover ni duplicar</p>
+      </div>
+
+      {/* Info */}
+      <div className="rounded-xl bg-navy-accent/10 border border-navy-accent/20 p-3">
+        <p className="text-xs text-gray-300">
+          Usa esto cuando dos asesores deben cubrir la misma zona el mismo día. El asesor destino verá los clientes en su lista, pero el asesor origen los conserva también.
+        </p>
+      </div>
+
+      {/* Asesor origen */}
+      <div className="rounded-xl bg-dark-surface border border-white/10 p-4 space-y-2">
+        <p className="text-sm font-semibold text-white">Asesor que tiene la ruta</p>
+        {isLoading ? <LoadingSpinner /> : (
+          <select
+            value={asesorOrigen}
+            onChange={e => { setAsesorOrigen(e.target.value); setResultado(null); setError("") }}
+            className="w-full rounded-xl border border-white/10 bg-dark-bg px-4 py-2.5 text-sm text-white focus:border-navy-accent focus:outline-none"
+          >
+            <option value="">Selecciona el asesor origen...</option>
+            {asesores.map((a: any) => (
+              <option key={a.id} value={a.id}>{a.nombre} ({a.total_clientes} clientes)</option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      {/* Selección de rutas */}
+      {asesorOrigen && (
+        <div className="rounded-xl bg-dark-surface border border-white/10 p-4 space-y-3">
+          <p className="text-sm font-semibold text-white">Rutas a compartir</p>
+          {cargandoClientes ? (
+            <div className="flex items-center gap-2 py-2">
+              <Loader2 className="h-4 w-4 animate-spin text-navy-accent" />
+              <span className="text-xs text-gray-400">Cargando rutas...</span>
+            </div>
+          ) : rutasUnicas.length === 0 ? (
+            <p className="text-xs text-gray-500">Este asesor no tiene clientes con ruta asignada</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {rutasUnicas.map(r => {
+                const count = clientes.filter((c: any) => getRuta(c.nombre) === r).length
+                const sel = rutasSel.includes(r)
+                return (
+                  <button key={r} onClick={() => toggleRuta(r)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-medium transition-all ${sel ? 'bg-navy-accent text-white' : 'bg-dark-bg border border-white/10 text-gray-400'}`}>
+                    Ruta {r} · {count}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Asesor destino */}
+      {asesorOrigen && rutasSel.length > 0 && (
+        <div className="rounded-xl bg-dark-surface border border-white/10 p-4 space-y-2">
+          <p className="text-sm font-semibold text-white">Compartir con</p>
+          <select
+            value={asesorDest}
+            onChange={e => setAsesorDest(e.target.value)}
+            className="w-full rounded-xl border border-white/10 bg-dark-bg px-4 py-2.5 text-sm text-white focus:border-navy-accent focus:outline-none"
+          >
+            <option value="">Selecciona el asesor destino...</option>
+            {asesores.filter((a: any) => a.id !== asesorOrigen).map((a: any) => (
+              <option key={a.id} value={a.id}>{a.nombre}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Resumen */}
+      {rutasSel.length > 0 && asesorDest && (
+        <div className="rounded-xl bg-navy-accent/10 border border-navy-accent/30 p-3">
+          <p className="text-xs text-gray-400 text-center">
+            <span className="text-white font-bold">{clientesAfectados} clientes</span> de las rutas {rutasSel.join(', ')} serán visibles para el asesor destino
+          </p>
+        </div>
+      )}
+
+      {error && (
+        <div className="flex items-center gap-2 rounded-xl bg-danger/10 border border-danger/20 px-4 py-3">
+          <AlertCircle className="h-4 w-4 text-danger" />
+          <p className="text-sm text-danger">{error}</p>
+        </div>
+      )}
+
+      <button
+        onClick={handleCompartir}
+        disabled={loading || !asesorOrigen || !asesorDest || rutasSel.length === 0}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-navy-accent py-3 font-bold text-white transition-all active:scale-[0.97] disabled:opacity-40"
+      >
+        {loading
+          ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Compartiendo...</span></>
+          : <><Share2 className="h-4 w-4" /><span>COMPARTIR RUTA</span></>
+        }
       </button>
     </div>
   )
