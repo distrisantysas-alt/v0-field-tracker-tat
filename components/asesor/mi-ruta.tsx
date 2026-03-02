@@ -961,7 +961,7 @@ function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClient
             <input
               type="text"
               value={ruta}
-              onChange={e => setRuta(e.target.value.replace(/\D/g, ''))}
+              onChange={e => setRuta(e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase())}
               placeholder="Ruta"
               maxLength={4}
               inputMode="numeric"
