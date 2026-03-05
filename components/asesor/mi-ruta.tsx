@@ -965,6 +965,11 @@ function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClient
               placeholder="Ruta"
               maxLength={4}
               inputMode="text"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              pattern="[A-Za-z0-9]*"
               className="w-20 rounded-xl border border-white/10 bg-dark-surface px-3 py-3 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none text-center font-mono"
             />
             <input
