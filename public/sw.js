@@ -14,7 +14,7 @@ let CACHE_NAME  = `dsroute-${APP_VERSION}`
 // ── Obtener versión del servidor al instalar ──────────────────────────────────
 async function fetchVersion() {
   try {
-    const res = await fetch('/api/sw-version')
+    const res = await fetch('/api/sw-version', { cache: 'no-store' })
     const data = await res.json()
     return data.version ?? Date.now().toString()
   } catch {
@@ -33,6 +33,7 @@ self.addEventListener('install', (event) => {
       await cache.addAll(STATIC_ASSETS)
     })
   )
+  // NO usar self.skipWaiting() aquí — dejar que el cliente decida cuándo activar
 })
 
 // ── Activación ───────────────────────────────────────────────────────────────
@@ -55,7 +56,7 @@ self.addEventListener('activate', (event) => {
 // ── Mensajes ─────────────────────────────────────────────────────────────────
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') {
-    console.log(`[SW] Aplicando nueva versión ${APP_VERSION}`)
+    console.log(`[SW] skipWaiting solicitado — activando versión ${APP_VERSION}`)
     self.skipWaiting()
   }
   if (event.data?.type === 'SYNC_NOW') {
@@ -71,19 +72,34 @@ self.addEventListener('fetch', (event) => {
   const { request } = event
   const url = new URL(request.url)
 
+  // Nunca cachear la ruta de versión del SW
+  if (url.pathname === '/api/sw-version') {
+    event.respondWith(fetch(request, { cache: 'no-store' }))
+    return
+  }
+
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(networkFirstApi(request))
     return
   }
+
+  // Para assets estáticos: network-first en vez de cache-first
+  // Esto asegura que siempre se intenten obtener los archivos más recientes
   if (
     request.destination === 'script' ||
     request.destination === 'style' ||
-    request.destination === 'image' ||
     request.destination === 'font'
   ) {
+    event.respondWith(networkFirst(request))
+    return
+  }
+
+  // Imágenes sí pueden ser cache-first (no cambian entre deploys)
+  if (request.destination === 'image') {
     event.respondWith(cacheFirst(request))
     return
   }
+
   if (request.mode === 'navigate') {
     event.respondWith(navigationHandler(request))
     return
@@ -91,6 +107,23 @@ self.addEventListener('fetch', (event) => {
 })
 
 // ── Estrategias de caché ──────────────────────────────────────────────────────
+
+// Network first con fallback a caché (para scripts, styles, fonts)
+async function networkFirst(request) {
+  try {
+    const response = await fetch(request)
+    if (response.ok) {
+      const cache = await caches.open(CACHE_NAME)
+      cache.put(request, response.clone())
+    }
+    return response
+  } catch {
+    const cached = await caches.match(request)
+    if (cached) return cached
+    return new Response('Asset no disponible offline', { status: 503 })
+  }
+}
+
 async function networkFirstApi(request) {
   try {
     const response = await fetch(request.clone())
@@ -140,7 +173,8 @@ async function cacheFirst(request) {
 
 async function navigationHandler(request) {
   try {
-    return await fetch(request)
+    const response = await fetch(request)
+    return response
   } catch {
     const cached = await caches.match(request)
     if (cached) return cached
