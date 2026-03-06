@@ -587,6 +587,9 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
         lat_capturada: payload.lat,
         lng_capturada: payload.lng,
         notas:         payload.notas,
+        hubo_pedido:   payload.hubo_pedido,   // ← AGREGAR
+        valor_pedido:  payload.valor_pedido,  // ← AGREGAR
+        foto_url:      foto_url,              // ← AGREGAR (si la foto subió)
         timestamp:     new Date().toISOString(),
         synced:        false,
       })
