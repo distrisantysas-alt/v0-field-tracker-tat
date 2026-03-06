@@ -1,10 +1,13 @@
 "use client"
 
 // ============================================================================
-// components/asesor/mi-ruta.tsx — CON CÁMARA EN CHECK-IN
-// ✅ Todo lo anterior +
-// ✅ Botón "Actualizar ubicación" siempre visible (no solo cuando sin GPS)
-// ✅ Jhoan puede corregir coordenadas incorrectas desde campo
+// components/asesor/mi-ruta.tsx
+// ✅ Asesor nunca se bloquea — opera con o sin GPS, con o sin señal
+// ✅ Sin GPS del dispositivo → foto OBLIGATORIA como evidencia
+// ✅ Sin GPS → flag sin_gps:true viaja al servidor (no falsificable)
+// ✅ Asesor puede actualizar coordenadas Y dirección del cliente
+// ✅ Asesor puede reportar cliente duplicado → supervisor decide
+// ✅ Fix offline: hubo_pedido + valor_pedido se sincronizan correctamente
 // ============================================================================
 
 import { useState, useEffect, useRef } from "react"
@@ -13,7 +16,8 @@ import {
   Bell, MapPin, Check, AlertTriangle, Clock, X,
   Loader2, Wifi, WifiOff, DollarSign, Search,
   ChevronLeft, ChevronRight, ShoppingBag, Eye,
-  Plus, UserPlus, Navigation, Camera, ImageIcon
+  Plus, UserPlus, Navigation, Camera, ImageIcon,
+  Edit2, Flag, Copy
 } from "lucide-react"
 import {
   type ClienteConEstado,
@@ -464,15 +468,30 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
   const [distancia, setDistancia]           = useState<number | null>(null)
   const [mostrarActualizarGPS, setMostrarActualizarGPS] = useState(false)
 
+  // ── Editar dirección ──────────────────────────────────────────────────────
+  const [mostrarEditarDir, setMostrarEditarDir]   = useState(false)
+  const [nuevaDireccion, setNuevaDireccion]       = useState(cliente.direccion || "")
+  const [guardandoDir, setGuardandoDir]           = useState(false)
+  const [dirGuardada, setDirGuardada]             = useState(false)
+
+  // ── Reportar duplicado ────────────────────────────────────────────────────
+  const [mostrarDuplicado, setMostrarDuplicado]   = useState(false)
+  const [notaDuplicado, setNotaDuplicado]         = useState("")
+  const [reportandoDup, setReportandoDup]         = useState(false)
+  const [dupReportado, setDupReportado]           = useState(false)
+
   const fileInputRef                = useRef<HTMLInputElement>(null)
   const [fotoPreview, setFotoPreview]   = useState<string | null>(null)
   const [fotoBase64, setFotoBase64]     = useState<string | null>(null)
   const [subiendoFoto, setSubiendoFoto] = useState(false)
 
-  const yaVisitado     = !!cliente.visitado_en
-  const sinGPS         = !cliente.lat || !cliente.lng || (parseFloat(String(cliente.lat)) === 0 && parseFloat(String(cliente.lng)) === 0)
-  const radioPermitido = cliente.radio_metros ?? 50
-  const dentroDelRango = distancia !== null && distancia <= radioPermitido
+  const yaVisitado       = !!cliente.visitado_en
+  const sinGPS           = !cliente.lat || !cliente.lng || (parseFloat(String(cliente.lat)) === 0 && parseFloat(String(cliente.lng)) === 0)
+  const sinGpsDispositivo = !userLocation          // GPS del celular no disponible
+  const radioPermitido   = cliente.radio_metros ?? 50
+  const dentroDelRango   = distancia !== null && distancia <= radioPermitido
+  // Sin GPS del dispositivo → foto obligatoria como evidencia mínima
+  const fotoObligatoria  = sinGpsDispositivo
 
   useEffect(() => {
     if (userLocation && cliente.lat && cliente.lng) {
@@ -522,12 +541,69 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
     }
   }
 
+  // ── Guardar nueva dirección ───────────────────────────────────────────────
+  const handleGuardarDireccion = async () => {
+    if (!nuevaDireccion.trim()) { alert("Ingresa la nueva dirección"); return }
+    setGuardandoDir(true)
+    try {
+      const res = await fetch('/api/clientes', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cliente_id: cliente.id, direccion: nuevaDireccion.trim() }),
+      })
+      if (!res.ok) throw new Error()
+      setDirGuardada(true)
+      setMostrarEditarDir(false)
+    } catch {
+      alert("Error guardando dirección. Intenta nuevamente.")
+    } finally {
+      setGuardandoDir(false)
+    }
+  }
+
+  // ── Reportar duplicado ────────────────────────────────────────────────────
+  const handleReportarDuplicado = async () => {
+    setReportandoDup(true)
+    try {
+      const res = await fetch('/api/clientes/reportar-duplicado', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cliente_id:  cliente.id,
+          asesor_id:   asesorId,
+          nota:        notaDuplicado.trim() || null,
+        }),
+      })
+      if (!res.ok) throw new Error()
+      setDupReportado(true)
+      setMostrarDuplicado(false)
+    } catch {
+      alert("Error enviando reporte. Intenta nuevamente.")
+    } finally {
+      setReportandoDup(false)
+    }
+  }
+
   const handleRegistrar = async () => {
     if (!tipoGestion) return
-    if (!userLocation) { alert("Esperando GPS. Activa la ubicación."); return }
     if (tipoGestion === "pedido" && (!monto || parseFloat(monto) <= 0)) {
       alert("Ingresa el monto del pedido"); return
     }
+
+    // ── Sin GPS del dispositivo → foto OBLIGATORIA ────────────────────────
+    if (sinGpsDispositivo && !fotoBase64) {
+      alert("⚠️ Sin GPS activo — debes tomar una foto como evidencia de la visita.")
+      return
+    }
+
+    const latFinal      = userLocation?.lat ?? 0
+    const lngFinal      = userLocation?.lng ?? 0
+
+    // Nota automática si no hay GPS — queda registrada en BD para supervisor
+    const notaFinal = sinGpsDispositivo
+      ? [nota, "⚠️ Registrado sin GPS del dispositivo"].filter(Boolean).join(" | ")
+      : nota || null
+
     setLoading(true)
     try {
       let foto_url: string | null = null
@@ -552,12 +628,13 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
       const payload = {
         asesor_id:    asesorId,
         cliente_id:   cliente.id,
-        lat:          userLocation.lat,
-        lng:          userLocation.lng,
-        notas:        nota || null,
+        lat:          latFinal,
+        lng:          lngFinal,
+        notas:        notaFinal,
         hubo_pedido:  tipoGestion === "pedido",
         valor_pedido: tipoGestion === "pedido" ? parseFloat(monto) : 0,
         foto_url,
+        sin_gps:      sinGpsDispositivo,   // ← flag de control para supervisor
       }
 
       if (hayConexion()) {
@@ -579,7 +656,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
         }
       }
 
-      // Sin señal o falló — guardar offline
+      // Sin señal o falló — guardar offline completo
       await guardarVisitaOffline({
         offline_id:    generarOfflineID(),
         asesor_id:     payload.asesor_id,
@@ -587,9 +664,10 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
         lat_capturada: payload.lat,
         lng_capturada: payload.lng,
         notas:         payload.notas,
-        hubo_pedido:   payload.hubo_pedido,   // ← AGREGAR
-        valor_pedido:  payload.valor_pedido,  // ← AGREGAR
-        foto_url:      foto_url,              // ← AGREGAR (si la foto subió)
+        hubo_pedido:   payload.hubo_pedido,
+        valor_pedido:  payload.valor_pedido,
+        foto_url:      foto_url,
+        sin_gps:       sinGpsDispositivo,
         timestamp:     new Date().toISOString(),
         synced:        false,
       })
@@ -601,6 +679,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
       setLoading(false)
     }
   }
+
   return (
     <div className="flex flex-col min-h-screen bg-dark-bg">
 
@@ -634,27 +713,126 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
 
         {/* Info del cliente */}
         <div className="rounded-xl bg-dark-surface border border-white/10 p-4 space-y-2">
-          {cliente.direccion && (
-            <div className="flex items-start gap-2">
-              <MapPin className="h-4 w-4 text-gray-500 mt-0.5 shrink-0" />
-              <p className="text-sm text-gray-300">{cliente.direccion}</p>
-            </div>
-          )}
+          {/* Dirección — editable */}
+          <div className="flex items-start gap-2">
+            <MapPin className="h-4 w-4 text-gray-500 mt-0.5 shrink-0" />
+            <p className="text-sm text-gray-300 flex-1">
+              {dirGuardada ? nuevaDireccion : (cliente.direccion || "Sin dirección")}
+            </p>
+            <button
+              onClick={() => setMostrarEditarDir(!mostrarEditarDir)}
+              className="shrink-0 text-gray-600 hover:text-navy-accent transition-colors"
+              title="Editar dirección"
+            >
+              <Edit2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
           {cliente.codigo && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-500">Código:</span>
               <span className="text-xs font-mono text-gray-300">{cliente.codigo}</span>
             </div>
           )}
-          {/* Botón actualizar ubicación — siempre visible */}
-          <button
-            onClick={() => setMostrarActualizarGPS(!mostrarActualizarGPS)}
-            className="flex items-center gap-1.5 mt-1 text-xs text-gray-500 hover:text-navy-accent transition-colors"
-          >
-            <Navigation className="h-3.5 w-3.5" />
-            {sinGPS ? 'Capturar ubicación' : 'Actualizar ubicación'}
-          </button>
+
+          {/* Acciones rápidas */}
+          <div className="flex items-center gap-3 pt-1 border-t border-white/5">
+            <button
+              onClick={() => { setMostrarActualizarGPS(!mostrarActualizarGPS); setMostrarEditarDir(false); setMostrarDuplicado(false) }}
+              className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-navy-accent transition-colors"
+            >
+              <Navigation className="h-3.5 w-3.5" />
+              {sinGPS ? 'Capturar GPS' : 'Actualizar GPS'}
+            </button>
+            <span className="text-gray-700">·</span>
+            <button
+              onClick={() => { setMostrarEditarDir(!mostrarEditarDir); setMostrarActualizarGPS(false); setMostrarDuplicado(false) }}
+              className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-navy-accent transition-colors"
+            >
+              <Edit2 className="h-3.5 w-3.5" />
+              Editar dirección
+            </button>
+            <span className="text-gray-700">·</span>
+            <button
+              onClick={() => { setMostrarDuplicado(!mostrarDuplicado); setMostrarActualizarGPS(false); setMostrarEditarDir(false) }}
+              className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-danger transition-colors"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              Duplicado
+            </button>
+          </div>
         </div>
+
+        {/* Panel editar dirección — expandible */}
+        {mostrarEditarDir && !dirGuardada && (
+          <div className="rounded-xl border border-navy-accent/30 bg-navy-accent/5 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Edit2 className="h-4 w-4 text-navy-accent shrink-0" />
+              <p className="text-sm font-semibold text-white">Actualizar dirección</p>
+            </div>
+            <input
+              type="text"
+              value={nuevaDireccion}
+              onChange={e => setNuevaDireccion(e.target.value)}
+              placeholder="Ej: Calle 5 #10-20 Local 3"
+              className="w-full rounded-xl border border-white/10 bg-dark-surface px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none"
+            />
+            <button
+              onClick={handleGuardarDireccion}
+              disabled={guardandoDir || !nuevaDireccion.trim()}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-navy-accent/20 border border-navy-accent/40 py-2.5 text-sm font-semibold text-navy-accent transition-all active:scale-[0.97] disabled:opacity-50"
+            >
+              {guardandoDir
+                ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Guardando...</span></>
+                : <><Check className="h-4 w-4" /><span>Guardar dirección</span></>
+              }
+            </button>
+          </div>
+        )}
+
+        {dirGuardada && (
+          <div className="rounded-xl border border-success/30 bg-success/10 p-3 flex items-center gap-2">
+            <Check className="h-4 w-4 text-success shrink-0" />
+            <p className="text-sm text-success font-medium">Dirección actualizada ✓</p>
+          </div>
+        )}
+
+        {/* Panel reportar duplicado — expandible */}
+        {mostrarDuplicado && !dupReportado && (
+          <div className="rounded-xl border border-danger/30 bg-danger/5 p-4 space-y-3">
+            <div className="flex items-start gap-2">
+              <Flag className="h-4 w-4 text-danger mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-white">Reportar como duplicado</p>
+                <p className="text-xs text-gray-400 mt-0.5">El supervisor revisará y decidirá qué hacer. Indica cuál es el original si lo sabes.</p>
+              </div>
+            </div>
+            <textarea
+              value={notaDuplicado}
+              onChange={e => setNotaDuplicado(e.target.value)}
+              placeholder="Ej: Es el mismo cliente que 'TIENDA DON PEDRO' en Ruta 3B..."
+              rows={2}
+              className="w-full resize-none rounded-xl border border-white/10 bg-dark-surface px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-danger focus:outline-none"
+            />
+            <button
+              onClick={handleReportarDuplicado}
+              disabled={reportandoDup}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-danger/20 border border-danger/40 py-2.5 text-sm font-semibold text-danger transition-all active:scale-[0.97] disabled:opacity-50"
+            >
+              {reportandoDup
+                ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Enviando...</span></>
+                : <><Flag className="h-4 w-4" /><span>Enviar reporte al supervisor</span></>
+              }
+            </button>
+          </div>
+        )}
+
+        {dupReportado && (
+          <div className="rounded-xl border border-warning/30 bg-warning/10 p-3 flex items-center gap-2">
+            <Flag className="h-4 w-4 text-warning shrink-0" />
+            <p className="text-sm text-warning font-medium">Reporte enviado — el supervisor revisará ✓</p>
+          </div>
+        )}
 
         {/* Panel actualizar GPS — expandible */}
         {(sinGPS || mostrarActualizarGPS) && !gpsGuardado && (
@@ -702,38 +880,49 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
           </div>
         )}
 
-        {/* GPS Status */}
-        {(!sinGPS || gpsGuardado) && (
-          <div className={`rounded-xl border p-4 ${
-            !userLocation ? "border-gray-700 bg-gray-800/50" :
-            dentroDelRango ? "border-success/30 bg-success/10" : "border-warning/30 bg-warning/10"
-          }`}>
-            <div className="flex items-center gap-3">
-              <div className={`flex h-10 w-10 items-center justify-center rounded-full ${
-                !userLocation ? "bg-gray-700" :
-                dentroDelRango ? "bg-success/20" : "bg-warning/20"
-              }`}>
-                {!userLocation
-                  ? <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
-                  : dentroDelRango
-                  ? <Check className="h-5 w-5 text-success" />
-                  : <AlertTriangle className="h-5 w-5 text-warning" />
-                }
-              </div>
-              <div>
-                {!userLocation ? (
-                  <><p className="text-sm font-medium text-white">Obteniendo GPS...</p><p className="text-xs text-gray-400">Activa la ubicación</p></>
-                ) : gpsGuardado ? (
-                  <><p className="text-sm font-medium text-success">Ubicación actualizada ✓</p><p className="text-xs text-gray-300">La visita se registrará como validada</p></>
-                ) : dentroDelRango ? (
-                  <><p className="text-sm font-medium text-success">Dentro del rango ✓</p><p className="text-xs text-gray-300">A {formatearDistancia(distancia!)} del cliente</p></>
-                ) : (
-                  <><p className="text-sm font-medium text-warning">Fuera del rango</p><p className="text-xs text-gray-300">A {formatearDistancia(distancia!)} — sospechosa</p></>
-                )}
-              </div>
+        {/* GPS Status del dispositivo */}
+        <div className={`rounded-xl border p-4 ${
+          sinGpsDispositivo         ? "border-danger/30 bg-danger/5" :
+          (!sinGPS || gpsGuardado) && dentroDelRango ? "border-success/30 bg-success/10" :
+          (!sinGPS || gpsGuardado)  ? "border-warning/30 bg-warning/10" :
+                                      "border-gray-700 bg-gray-800/50"
+        }`}>
+          <div className="flex items-center gap-3">
+            <div className={`flex h-10 w-10 items-center justify-center rounded-full ${
+              sinGpsDispositivo ? "bg-danger/20" :
+              (!sinGPS || gpsGuardado) && dentroDelRango ? "bg-success/20" : "bg-warning/20"
+            }`}>
+              {sinGpsDispositivo
+                ? <AlertTriangle className="h-5 w-5 text-danger" />
+                : gpsGuardado
+                ? <Check className="h-5 w-5 text-success" />
+                : (!sinGPS && dentroDelRango)
+                ? <Check className="h-5 w-5 text-success" />
+                : distancia !== null
+                ? <AlertTriangle className="h-5 w-5 text-warning" />
+                : <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+              }
+            </div>
+            <div className="flex-1">
+              {sinGpsDispositivo ? (
+                <>
+                  <p className="text-sm font-medium text-danger">GPS del dispositivo inactivo</p>
+                  <p className="text-xs text-gray-300 mt-0.5">
+                    📸 <span className="font-semibold text-white">Foto obligatoria</span> para poder registrar
+                  </p>
+                </>
+              ) : gpsGuardado ? (
+                <><p className="text-sm font-medium text-success">Ubicación actualizada ✓</p><p className="text-xs text-gray-300">La visita se registrará como validada</p></>
+              ) : dentroDelRango ? (
+                <><p className="text-sm font-medium text-success">Dentro del rango ✓</p><p className="text-xs text-gray-300">A {formatearDistancia(distancia!)} del cliente</p></>
+              ) : distancia !== null ? (
+                <><p className="text-sm font-medium text-warning">Fuera del rango</p><p className="text-xs text-gray-300">A {formatearDistancia(distancia!)} — quedará como sospechosa</p></>
+              ) : (
+                <><p className="text-sm font-medium text-gray-300">Calculando distancia...</p><p className="text-xs text-gray-400">Obteniendo posición GPS</p></>
+              )}
             </div>
           </div>
-        )}
+        </div>
 
         {/* Ya visitado */}
         {yaVisitado ? (
@@ -843,16 +1032,25 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
             {/* Foto */}
             {tipoGestion && (
               <div className="space-y-2">
-                <p className="text-sm font-semibold text-white">Foto del punto de venta</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-white">Foto del punto de venta</p>
+                  {fotoObligatoria && (
+                    <span className="rounded-full bg-danger/20 px-2 py-0.5 text-[10px] font-bold text-danger">OBLIGATORIA</span>
+                  )}
+                </div>
                 {!fotoPreview ? (
                   <button
                     onClick={handleAbrirCamara}
                     disabled={subiendoFoto}
-                    className="flex w-full items-center justify-center gap-3 rounded-xl border-2 border-dashed border-white/20 bg-dark-surface py-6 text-gray-400 transition-all hover:border-navy-accent/50 hover:text-gray-300 active:scale-[0.98] disabled:opacity-50"
+                    className={`flex w-full items-center justify-center gap-3 rounded-xl border-2 border-dashed py-6 text-gray-400 transition-all active:scale-[0.98] disabled:opacity-50 ${
+                      fotoObligatoria
+                        ? "border-danger/40 bg-danger/5 hover:border-danger/60"
+                        : "border-white/20 bg-dark-surface hover:border-navy-accent/50 hover:text-gray-300"
+                    }`}
                   >
                     {subiendoFoto
                       ? <><Loader2 className="h-6 w-6 animate-spin" /><span className="text-sm">Procesando...</span></>
-                      : <><Camera className="h-6 w-6" /><span className="text-sm font-medium">Tomar foto</span></>
+                      : <><Camera className={`h-6 w-6 ${fotoObligatoria ? 'text-danger' : ''}`} /><span className="text-sm font-medium">{fotoObligatoria ? 'Tomar foto (requerida)' : 'Tomar foto'}</span></>
                     }
                   </button>
                 ) : (
@@ -874,7 +1072,12 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
                   </div>
                 )}
                 <p className="text-[10px] text-gray-600 text-center">
-                  {fotoPreview ? "La foto se subirá al confirmar" : "Opcional — evidencia de la visita"}
+                  {fotoPreview
+                    ? "La foto se subirá al confirmar"
+                    : fotoObligatoria
+                    ? "Requerida cuando el GPS del dispositivo está inactivo"
+                    : "Opcional — evidencia de la visita"
+                  }
                 </p>
               </div>
             )}
@@ -887,7 +1090,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
         <div className="fixed inset-x-0 bottom-16 z-40 px-4 pb-3">
           <button
             onClick={handleRegistrar}
-            disabled={loading || !userLocation}
+            disabled={loading || (fotoObligatoria && !fotoBase64)}
             className={`flex w-full items-center justify-center gap-3 rounded-xl py-4 text-white font-bold text-base shadow-lg transition-all active:scale-[0.97] disabled:opacity-50 ${
               tipoGestion === "pedido" ? "bg-success shadow-success/25" : "bg-navy-accent shadow-navy-accent/25"
             }`}
@@ -899,8 +1102,18 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
               : <><Check className="h-5 w-5" /><span>CONFIRMAR VISITA</span></>
             }
           </button>
-          {!isOnline && (
+          {sinGpsDispositivo && !fotoBase64 && (
+            <p className="mt-1.5 text-center text-[10px] text-danger font-semibold">
+              📸 Toma la foto para poder confirmar sin GPS
+            </p>
+          )}
+          {sinGpsDispositivo && fotoBase64 && (
             <p className="mt-1.5 text-center text-[10px] text-warning">
+              SIN GPS — se registrará con foto como evidencia · marcado para supervisión
+            </p>
+          )}
+          {!isOnline && (
+            <p className="mt-1 text-center text-[10px] text-warning">
               SIN CONEXIÓN — se guardará y sincronizará al reconectar
             </p>
           )}
