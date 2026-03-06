@@ -77,6 +77,9 @@ export interface VisitaOffline {
   lat_capturada: number;
   lng_capturada: number;
   notas: string | null;
+  hubo_pedido:   boolean   // ← AGREGAR
+  valor_pedido:  number    // ← AGREGAR
+  foto_url?:     string | null // ← AGREGAR (opcional)
   timestamp: string; // ISO string
   synced: false;
 }
