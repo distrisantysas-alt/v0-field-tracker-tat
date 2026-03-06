@@ -8,7 +8,7 @@
 // ============================================================================
 
 import { useEffect, useState } from 'react'
-import { RefreshCw, X, Download } from 'lucide-react'
+import { RefreshCw, X, Download, Wifi, WifiOff } from 'lucide-react'
 
 export function PWAInstaller() {
   const [updateAvailable, setUpdateAvailable]     = useState(false)
@@ -16,15 +16,15 @@ export function PWAInstaller() {
   const [installing, setInstalling]               = useState(false)
   const [showInstallPrompt, setShowInstallPrompt] = useState(false)
   const [deferredPrompt, setDeferredPrompt]       = useState<any>(null)
+  const [isOnline, setIsOnline]                   = useState(true)
+  const [syncMsg, setSyncMsg]                     = useState<string | null>(null)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (!('serviceWorker' in navigator)) return
 
-    // ── Registrar SW con updateViaCache: 'none' ───────────────────────────
-    // Esto fuerza al navegador a descargar sw.js fresco en cada visita
-    // sin esta opción el navegador puede cachear sw.js por horas
-    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then(registration => {
+    // ── Registrar SW ──────────────────────────────────────────────────────
+    navigator.serviceWorker.register('/sw.js').then(registration => {
       console.log('[PWA] SW registrado:', registration.scope)
 
       // Nueva versión ya esperando
@@ -60,7 +60,24 @@ export function PWAInstaller() {
     // Mensajes del SW
     navigator.serviceWorker.addEventListener('message', (event) => {
       if (event.data?.type === 'SYNC_COMPLETE') {
-        console.log(`[PWA] ${event.data.sincronizadas} visitas sincronizadas`)
+        const { sincronizadas } = event.data
+        if (sincronizadas > 0) {
+          setSyncMsg(`✅ ${sincronizadas} visita${sincronizadas > 1 ? 's' : ''} sincronizada${sincronizadas > 1 ? 's' : ''}`)
+          setTimeout(() => setSyncMsg(null), 4000)
+        }
+      }
+    })
+
+    // ── Estado de conexión ────────────────────────────────────────────────
+    const updateOnline = () => setIsOnline(navigator.onLine)
+    window.addEventListener('online',  updateOnline)
+    window.addEventListener('offline', updateOnline)
+    setIsOnline(navigator.onLine)
+
+    // Al reconectar → disparar sync
+    window.addEventListener('online', () => {
+      if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'SYNC_NOW' })
       }
     })
 
@@ -72,6 +89,11 @@ export function PWAInstaller() {
         setShowInstallPrompt(true)
       }
     })
+
+    return () => {
+      window.removeEventListener('online',  updateOnline)
+      window.removeEventListener('offline', updateOnline)
+    }
 
   }, [])
 
@@ -130,6 +152,22 @@ export function PWAInstaller() {
           <button onClick={() => setShowInstallPrompt(false)} className="shrink-0 text-gray-500 hover:text-white">
             <X className="h-4 w-4" />
           </button>
+        </div>
+      )}
+
+      {/* Indicador sin conexión */}
+      {!isOnline && (
+        <div className="fixed top-0 inset-x-0 z-[9998] flex items-center justify-center gap-2 bg-warning/90 py-2 text-dark-bg text-xs font-semibold">
+          <WifiOff className="h-3.5 w-3.5" />
+          Sin conexión — modo offline activo
+        </div>
+      )}
+
+      {/* Mensaje sync completada */}
+      {syncMsg && (
+        <div className="fixed top-12 inset-x-4 z-[9997] flex items-center justify-center gap-2 rounded-xl bg-success/90 py-3 text-white text-sm font-semibold shadow-lg">
+          <Wifi className="h-4 w-4" />
+          {syncMsg}
         </div>
       )}
     </>
