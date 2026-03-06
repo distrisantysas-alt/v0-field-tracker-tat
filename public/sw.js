@@ -33,7 +33,7 @@ self.addEventListener('install', (event) => {
       await cache.addAll(STATIC_ASSETS)
     })
   )
-  // NO usar self.skipWaiting() aquí — dejar que el cliente decida cuándo activar
+  // self.skipWaiting()
 })
 
 // ── Activación ───────────────────────────────────────────────────────────────
