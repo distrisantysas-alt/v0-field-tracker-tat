@@ -531,16 +531,22 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
     setLoading(true)
     try {
       let foto_url: string | null = null
-      if (fotoBase64) {
-        const uploadRes = await fetch('/api/upload-foto', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ foto_base64: fotoBase64 }),
-        })
-        if (uploadRes.ok) {
-          const uploadData = await uploadRes.json()
-          foto_url = uploadData.url
-        }
+      if (fotoBase64 && hayConexion()) {
+        try {
+          const controller = new AbortController()
+          const timer = setTimeout(() => controller.abort(), 10000)
+          const uploadRes = await fetch('/api/upload-foto', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ foto_base64: fotoBase64 }),
+            signal: controller.signal,
+          })
+          clearTimeout(timer)
+          if (uploadRes.ok) {
+            const uploadData = await uploadRes.json()
+            foto_url = uploadData.url
+          }
+        } catch {}
       }
 
       const payload = {
@@ -555,32 +561,43 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
       }
 
       if (hayConexion()) {
-        const res = await fetch('/api/checkin', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        if (!res.ok) throw new Error()
-      } else {
-        await guardarVisitaOffline({
-          offline_id:    generarOfflineID(),
-          asesor_id:     payload.asesor_id,
-          cliente_id:    payload.cliente_id,
-          lat_capturada: payload.lat,
-          lng_capturada: payload.lng,
-          notas:         payload.notas,
-          timestamp:     new Date().toISOString(),
-          synced:        false,
-        })
+        try {
+          const controller = new AbortController()
+          const timer = setTimeout(() => controller.abort(), 12000)
+          const res = await fetch('/api/checkin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal,
+          })
+          clearTimeout(timer)
+          if (!res.ok) throw new Error()
+          onExito()
+          return
+        } catch {
+          // Falló con señal — guardar offline como respaldo
+        }
       }
+
+      // Sin señal o falló — guardar offline
+      await guardarVisitaOffline({
+        offline_id:    generarOfflineID(),
+        asesor_id:     payload.asesor_id,
+        cliente_id:    payload.cliente_id,
+        lat_capturada: payload.lat,
+        lng_capturada: payload.lng,
+        notas:         payload.notas,
+        timestamp:     new Date().toISOString(),
+        synced:        false,
+      })
       onExito()
+
     } catch {
       alert("Error al registrar. Intenta nuevamente.")
     } finally {
       setLoading(false)
     }
   }
-
   return (
     <div className="flex flex-col min-h-screen bg-dark-bg">
 
