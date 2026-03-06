@@ -21,8 +21,10 @@ export function PWAInstaller() {
     if (typeof window === 'undefined') return
     if (!('serviceWorker' in navigator)) return
 
-    // ── Registrar SW ──────────────────────────────────────────────────────
-    navigator.serviceWorker.register('/sw.js').then(registration => {
+    // ── Registrar SW con updateViaCache: 'none' ───────────────────────────
+    // Esto fuerza al navegador a descargar sw.js fresco en cada visita
+    // sin esta opción el navegador puede cachear sw.js por horas
+    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then(registration => {
       console.log('[PWA] SW registrado:', registration.scope)
 
       // Nueva versión ya esperando
