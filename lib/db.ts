@@ -81,6 +81,7 @@ export interface VisitaOffline {
   hubo_pedido:   boolean;
   valor_pedido:  number;
   foto_url?:     string | null;
+  sin_gps?:      boolean;        // ← flag de control para supervisor
   timestamp:     string; // ISO string
   synced:        false;
 }
@@ -255,6 +256,7 @@ export async function sincronizarVisitasOffline(): Promise<{
           hubo_pedido:  visita.hubo_pedido  ?? false,
           valor_pedido: visita.valor_pedido ?? 0,
           foto_url:     visita.foto_url     ?? null,
+          sin_gps:      visita.sin_gps      ?? false,  // ← flag de control
           offline_id:   visita.offline_id,
         }),
       });
