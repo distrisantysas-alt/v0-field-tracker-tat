@@ -67,21 +67,22 @@ export interface ClienteConEstado extends Cliente {
   validada: boolean | null;
   distancia_metros: number | null;
   visitado_en: Date | null;
+  foto_url: string | null;
 }
 
 // Tipo para visitas offline pendientes de sincronizar
 export interface VisitaOffline {
-  offline_id: string;
-  asesor_id: number;
-  cliente_id: number;
+  offline_id:    string;
+  asesor_id:     number;
+  cliente_id:    number;
   lat_capturada: number;
   lng_capturada: number;
-  notas: string | null;
-  hubo_pedido:   boolean   // ← AGREGAR
-  valor_pedido:  number    // ← AGREGAR
-  foto_url?:     string | null // ← AGREGAR (opcional)
-  timestamp: string; // ISO string
-  synced: false;
+  notas:         string | null;
+  hubo_pedido:   boolean;
+  valor_pedido:  number;
+  foto_url?:     string | null;
+  timestamp:     string; // ISO string
+  synced:        false;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,7 +128,7 @@ export function determinarEstadoVisita(
   mensaje: string;
 } {
   const validada = distanciaMetros <= radioPermitido;
-  
+
   return {
     validada,
     estado: validada ? 'validada' : 'sospechosa',
@@ -246,12 +247,15 @@ export async function sincronizarVisitasOffline(): Promise<{
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          asesor_id: visita.asesor_id,
-          cliente_id: visita.cliente_id,
-          lat: visita.lat_capturada,
-          lng: visita.lng_capturada,
-          notas: visita.notas,
-          offline_id: visita.offline_id,
+          asesor_id:    visita.asesor_id,
+          cliente_id:   visita.cliente_id,
+          lat:          visita.lat_capturada,
+          lng:          visita.lng_capturada,
+          notas:        visita.notas,
+          hubo_pedido:  visita.hubo_pedido  ?? false,
+          valor_pedido: visita.valor_pedido ?? 0,
+          foto_url:     visita.foto_url     ?? null,
+          offline_id:   visita.offline_id,
         }),
       });
 
