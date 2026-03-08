@@ -262,7 +262,7 @@ export async function POST(req: NextRequest) {
         SET completada = true
         WHERE asesor_id = ${asesor_id}
           AND cliente_id = ${cliente_id}
-          AND fecha = CURRENT_DATE
+          AND fecha = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Bogota')::date
         RETURNING id
       `;
 
