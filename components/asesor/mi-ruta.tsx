@@ -8,6 +8,7 @@
 // ✅ Asesor puede actualizar coordenadas Y dirección del cliente
 // ✅ Asesor puede reportar cliente duplicado → supervisor decide
 // ✅ Fix offline: hubo_pedido + valor_pedido se sincronizan correctamente
+// ✅ Fix GPU glitch: eliminado overlay absoluto con gradiente sobre imagen
 // ============================================================================
 
 import { useState, useEffect, useRef } from "react"
@@ -487,10 +488,9 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
 
   const yaVisitado       = !!cliente.visitado_en
   const sinGPS           = !cliente.lat || !cliente.lng || (parseFloat(String(cliente.lat)) === 0 && parseFloat(String(cliente.lng)) === 0)
-  const sinGpsDispositivo = !userLocation          // GPS del celular no disponible
+  const sinGpsDispositivo = !userLocation
   const radioPermitido   = cliente.radio_metros ?? 50
   const dentroDelRango   = distancia !== null && distancia <= radioPermitido
-  // Sin GPS del dispositivo → foto obligatoria como evidencia mínima
   const fotoObligatoria  = sinGpsDispositivo
 
   useEffect(() => {
@@ -541,7 +541,6 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
     }
   }
 
-  // ── Guardar nueva dirección ───────────────────────────────────────────────
   const handleGuardarDireccion = async () => {
     if (!nuevaDireccion.trim()) { alert("Ingresa la nueva dirección"); return }
     setGuardandoDir(true)
@@ -561,7 +560,6 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
     }
   }
 
-  // ── Reportar duplicado ────────────────────────────────────────────────────
   const handleReportarDuplicado = async () => {
     setReportandoDup(true)
     try {
@@ -590,16 +588,14 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
       alert("Ingresa el monto del pedido"); return
     }
 
-    // ── Sin GPS del dispositivo → foto OBLIGATORIA ────────────────────────
     if (sinGpsDispositivo && !fotoBase64) {
       alert("⚠️ Sin GPS activo — debes tomar una foto como evidencia de la visita.")
       return
     }
 
-    const latFinal      = userLocation?.lat ?? 0
-    const lngFinal      = userLocation?.lng ?? 0
+    const latFinal  = userLocation?.lat ?? 0
+    const lngFinal  = userLocation?.lng ?? 0
 
-    // Nota automática si no hay GPS — queda registrada en BD para supervisor
     const notaFinal = sinGpsDispositivo
       ? [nota, "⚠️ Registrado sin GPS del dispositivo"].filter(Boolean).join(" | ")
       : nota || null
@@ -634,7 +630,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
         hubo_pedido:  tipoGestion === "pedido",
         valor_pedido: tipoGestion === "pedido" ? parseFloat(monto) : 0,
         foto_url,
-        sin_gps:      sinGpsDispositivo,   // ← flag de control para supervisor
+        sin_gps:      sinGpsDispositivo,
       }
 
       if (hayConexion()) {
@@ -651,12 +647,9 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
           if (!res.ok) throw new Error()
           onExito()
           return
-        } catch {
-          // Falló con señal — guardar offline como respaldo
-        }
+        } catch {}
       }
 
-      // Sin señal o falló — guardar offline completo
       await guardarVisitaOffline({
         offline_id:    generarOfflineID(),
         asesor_id:     payload.asesor_id,
@@ -713,7 +706,6 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
 
         {/* Info del cliente */}
         <div className="rounded-xl bg-dark-surface border border-white/10 p-4 space-y-2">
-          {/* Dirección — editable */}
           <div className="flex items-start gap-2">
             <MapPin className="h-4 w-4 text-gray-500 mt-0.5 shrink-0" />
             <p className="text-sm text-gray-300 flex-1">
@@ -735,7 +727,6 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
             </div>
           )}
 
-          {/* Acciones rápidas */}
           <div className="flex items-center gap-3 pt-1 border-t border-white/5">
             <button
               onClick={() => { setMostrarActualizarGPS(!mostrarActualizarGPS); setMostrarEditarDir(false); setMostrarDuplicado(false) }}
@@ -763,7 +754,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
           </div>
         </div>
 
-        {/* Panel editar dirección — expandible */}
+        {/* Panel editar dirección */}
         {mostrarEditarDir && !dirGuardada && (
           <div className="rounded-xl border border-navy-accent/30 bg-navy-accent/5 p-4 space-y-3">
             <div className="flex items-center gap-2">
@@ -797,14 +788,14 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
           </div>
         )}
 
-        {/* Panel reportar duplicado — expandible */}
+        {/* Panel reportar duplicado */}
         {mostrarDuplicado && !dupReportado && (
           <div className="rounded-xl border border-danger/30 bg-danger/5 p-4 space-y-3">
             <div className="flex items-start gap-2">
               <Flag className="h-4 w-4 text-danger mt-0.5 shrink-0" />
               <div>
                 <p className="text-sm font-semibold text-white">Reportar como duplicado</p>
-                <p className="text-xs text-gray-400 mt-0.5">El supervisor revisará y decidirá qué hacer. Indica cuál es el original si lo sabes.</p>
+                <p className="text-xs text-gray-400 mt-0.5">El supervisor revisará y decidirá qué hacer.</p>
               </div>
             </div>
             <textarea
@@ -834,7 +825,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
           </div>
         )}
 
-        {/* Panel actualizar GPS — expandible */}
+        {/* Panel actualizar GPS */}
         {(sinGPS || mostrarActualizarGPS) && !gpsGuardado && (
           <div className={`rounded-xl border p-4 ${sinGPS ? 'border-warning/40 bg-warning/10' : 'border-navy-accent/30 bg-navy-accent/5'}`}>
             <div className="flex items-start gap-3 mb-3">
@@ -1054,17 +1045,17 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
                     }
                   </button>
                 ) : (
-                  <div className="relative rounded-xl overflow-hidden border border-success/30">
+                  // ── FIX GPU GLITCH: sin overlay absoluto con gradiente ──────────
+                  <div className="rounded-xl overflow-hidden border border-success/30">
                     <img src={fotoPreview} alt="Foto" className="w-full object-cover max-h-52" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                    <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between px-3 py-2">
+                    <div className="flex items-center justify-between px-3 py-2 bg-black/60">
                       <div className="flex items-center gap-1.5">
                         <Check className="h-4 w-4 text-success" />
                         <span className="text-xs font-medium text-white">Foto lista</span>
                       </div>
                       <button
                         onClick={() => { setFotoPreview(null); setFotoBase64(null) }}
-                        className="flex items-center gap-1 rounded-lg bg-black/40 px-2 py-1 text-xs text-white"
+                        className="flex items-center gap-1 rounded-lg bg-white/10 px-2 py-1 text-xs text-white"
                       >
                         <Camera className="h-3 w-3" /> Cambiar
                       </button>
