@@ -9,14 +9,14 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
 
-    const buscar = searchParams.get('buscar') || '';
+    const buscar    = searchParams.get('buscar')    || '';
     const asesor_id = searchParams.get('asesor_id') || '';
-    const activo = searchParams.get('activo');
-    const con_gps = searchParams.get('con_gps') || 'all';
-    const limit = parseInt(searchParams.get('limit') || '100');
-    const offset = parseInt(searchParams.get('offset') || '0');
+    const activo    = searchParams.get('activo');
+    const con_gps   = searchParams.get('con_gps')   || 'all';
+    const limit     = parseInt(searchParams.get('limit')  || '100');
+    const offset    = parseInt(searchParams.get('offset') || '0');
 
-    let clientes: any[];
+    let clientes:    any[];
     let totalResult: any[];
 
     if (!buscar && !asesor_id && activo === null && con_gps === 'all') {
@@ -49,18 +49,34 @@ export async function GET(req: NextRequest) {
       `;
 
     } else if (!buscar && asesor_id && activo === null && con_gps === 'all') {
+      // ── Incluye clientes propios + clientes compartidos vía asesor_clientes ──
       clientes = await sql`
         SELECT c.id, c.codigo, c.nombre, c.direccion, c.telefono,
                c.lat, c.lng, c.radio_metros, c.activo, c.created_at,
                a.id as asesor_id, a.nombre as asesor_nombre, a.email as asesor_email
         FROM clientes c
         LEFT JOIN asesores a ON c.asesor_id = a.id
-        WHERE c.asesor_id = ${asesor_id}::uuid
-        ORDER BY c.nombre ASC
+        WHERE c.asesor_id = ${asesor_id}::uuid AND c.activo = true
+        UNION
+        SELECT c.id, c.codigo, c.nombre, c.direccion, c.telefono,
+               c.lat, c.lng, c.radio_metros, c.activo, c.created_at,
+               a.id as asesor_id, a.nombre as asesor_nombre, a.email as asesor_email
+        FROM clientes c
+        LEFT JOIN asesores a ON c.asesor_id = a.id
+        INNER JOIN asesor_clientes ac ON ac.cliente_id = c.id
+        WHERE ac.asesor_id = ${asesor_id}::uuid AND c.activo = true
+        ORDER BY nombre ASC
         LIMIT ${limit} OFFSET ${offset}
       `;
       totalResult = await sql`
-        SELECT COUNT(*) as total FROM clientes WHERE asesor_id = ${asesor_id}::uuid
+        SELECT COUNT(*) as total FROM (
+          SELECT c.id FROM clientes c
+          WHERE c.asesor_id = ${asesor_id}::uuid AND c.activo = true
+          UNION
+          SELECT c.id FROM clientes c
+          INNER JOIN asesor_clientes ac ON ac.cliente_id = c.id
+          WHERE ac.asesor_id = ${asesor_id}::uuid AND c.activo = true
+        ) sub
       `;
 
     } else if (con_gps === 'true') {
@@ -111,30 +127,30 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       clientes: clientes.map(c => ({
-        id: c.id,
-        codigo: c.codigo,
-        nombre: c.nombre,
+        id:       c.id,
+        codigo:   c.codigo,
+        nombre:   c.nombre,
         direccion: c.direccion,
-        telefono: c.telefono,
+        telefono:  c.telefono,
         coordenadas: c.lat && c.lng ? {
           lat: parseFloat(c.lat),
-          lng: parseFloat(c.lng)
+          lng: parseFloat(c.lng),
         } : null,
         radio_metros: c.radio_metros,
-        activo: c.activo,
+        activo:       c.activo,
         asesor: c.asesor_id ? {
-          id: c.asesor_id,
+          id:     c.asesor_id,
           nombre: c.asesor_nombre,
-          email: c.asesor_email
+          email:  c.asesor_email,
         } : null,
-        created_at: c.created_at
+        created_at: c.created_at,
       })),
       pagination: {
         total,
         limit,
         offset,
-        has_more: offset + limit < total
-      }
+        has_more: offset + limit < total,
+      },
     });
 
   } catch (error) {
@@ -156,14 +172,14 @@ export async function PATCH(req: NextRequest) {
     }
 
     const updates: string[] = [];
-    const values: any[] = [];
+    const values:  any[]    = [];
     let paramIndex = 1;
 
     if (asesor_id !== undefined) { updates.push(`asesor_id = $${paramIndex++}`); values.push(asesor_id); }
-    if (activo !== undefined)    { updates.push(`activo = $${paramIndex++}`);    values.push(activo); }
-    if (nombre)                  { updates.push(`nombre = $${paramIndex++}`);    values.push(nombre); }
+    if (activo    !== undefined) { updates.push(`activo = $${paramIndex++}`);    values.push(activo);    }
+    if (nombre)                  { updates.push(`nombre = $${paramIndex++}`);    values.push(nombre);    }
     if (direccion)               { updates.push(`direccion = $${paramIndex++}`); values.push(direccion); }
-    if (telefono)                { updates.push(`telefono = $${paramIndex++}`);  values.push(telefono); }
+    if (telefono)                { updates.push(`telefono = $${paramIndex++}`);  values.push(telefono);  }
 
     if (updates.length === 0) {
       return NextResponse.json({ error: 'No hay campos para actualizar' }, { status: 400 });
