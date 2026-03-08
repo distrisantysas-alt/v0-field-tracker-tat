@@ -6,6 +6,7 @@
 // ✅ Foto de visita visible en perfil de asesor
 // ✅ Reporte por días
 // ✅ Tab "Mapa" con ubicación en tiempo real de asesores
+// ✅ Tab "Alertas" con gestión de clientes duplicados reportados
 // ============================================================================
 
 import { useState } from "react"
@@ -14,10 +15,9 @@ import useSWR from "swr"
 import {
   Users, AlertTriangle, FileText, ChevronLeft, ChevronRight,
   Loader2, Check, TrendingUp, Eye, ShoppingBag, DollarSign,
-  ImageIcon, Camera, Map
+  ImageIcon, Camera, Map, Copy, X, Flag
 } from "lucide-react"
 
-// ✅ Dynamic import — Leaflet solo carga en el cliente, nunca en servidor
 const MapaAsesores = dynamic(() => import('./supervisor-mapa-asesores'), {
   ssr: false,
   loading: () => (
@@ -55,13 +55,21 @@ export function SupervisorLayout({ onBack }: SupervisorLayoutProps) {
     { refreshInterval: 30000 }
   )
 
-  const alertaCount = data?.alertas?.length ?? 0
+  const { data: duplicadosData } = useSWR(
+    '/api/clientes/reportar-duplicado?estado=pendiente',
+    fetcher,
+    { refreshInterval: 60000 }
+  )
+
+  const alertaCount    = data?.alertas?.length ?? 0
+  const duplicadoCount = duplicadosData?.reportes?.length ?? 0
+  const totalAlertas   = alertaCount + duplicadoCount
 
   const tabs = [
-    { id: "equipo"   as TabId, label: "Mi Equipo", icon: Users        },
-    { id: "mapa"     as TabId, label: "Mapa",      icon: Map          },
+    { id: "equipo"   as TabId, label: "Mi Equipo", icon: Users         },
+    { id: "mapa"     as TabId, label: "Mapa",      icon: Map           },
     { id: "alertas"  as TabId, label: "Alertas",   icon: AlertTriangle },
-    { id: "reportes" as TabId, label: "Reportes",  icon: FileText     },
+    { id: "reportes" as TabId, label: "Reportes",  icon: FileText      },
   ]
 
   return (
@@ -120,9 +128,9 @@ export function SupervisorLayout({ onBack }: SupervisorLayoutProps) {
             >
               <Icon className="h-3.5 w-3.5" />
               {t.label}
-              {t.id === "alertas" && alertaCount > 0 && (
+              {t.id === "alertas" && totalAlertas > 0 && (
                 <span className="absolute right-2 top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-bold text-white">
-                  {alertaCount}
+                  {totalAlertas}
                 </span>
               )}
             </button>
@@ -132,7 +140,7 @@ export function SupervisorLayout({ onBack }: SupervisorLayoutProps) {
 
       {/* Contenido */}
       <div className="flex-1 overflow-y-auto">
-        {isLoading && tab !== "mapa" ? (
+        {isLoading && tab !== "mapa" && tab !== "alertas" ? (
           <div className="flex h-64 items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-navy-accent" />
           </div>
@@ -140,7 +148,7 @@ export function SupervisorLayout({ onBack }: SupervisorLayoutProps) {
           <>
             {tab === "equipo"   && <EquipoView   data={data} />}
             {tab === "mapa"     && <MapaAsesores />}
-            {tab === "alertas"  && <AlertasView  data={data} />}
+            {tab === "alertas"  && <AlertasView  data={data} duplicados={duplicadosData?.reportes ?? []} />}
             {tab === "reportes" && <ReportesView data={data} />}
           </>
         )}
@@ -206,7 +214,7 @@ function EquipoView({ data }: { data: any }) {
 }
 
 // ============================================================================
-// PERFIL ASESOR — con foto en visitas y reporte por días
+// PERFIL ASESOR
 // ============================================================================
 function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
   const fecha = fechaColombia()
@@ -214,7 +222,7 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
 
   const hace7Dias = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)
     .toLocaleString('en-CA', { timeZone: 'America/Bogota' })
-    .split(',')[0];
+    .split(',')[0]
 
   const { data, isLoading } = useSWR(
     `/api/resumen-dia?asesor_id=${asesor.id}&fecha=${fecha}`,
@@ -244,24 +252,15 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
 
   return (
     <div className="p-4 space-y-4">
-
-      {/* Foto ampliada modal */}
       {fotoAmpliada && (
-        <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90"
-          onClick={() => setFotoAmpliada(null)}
-        >
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90" onClick={() => setFotoAmpliada(null)}>
           <div className="relative w-full max-w-lg px-4">
             <img src={fotoAmpliada} alt="Foto visita" className="w-full rounded-2xl object-contain max-h-[80vh]" />
-            <button
-              className="absolute top-2 right-6 flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-white"
-              onClick={() => setFotoAmpliada(null)}
-            >✕</button>
+            <button className="absolute top-2 right-6 flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-white" onClick={() => setFotoAmpliada(null)}>✕</button>
           </div>
         </div>
       )}
 
-      {/* Header */}
       <div className="flex items-center gap-3">
         <button onClick={onBack} className="flex h-9 w-9 items-center justify-center rounded-xl bg-dark-surface text-gray-400">
           <ChevronLeft className="h-5 w-5" />
@@ -281,8 +280,6 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
         </div>
       ) : data ? (
         <div className="space-y-4">
-
-          {/* KPIs hoy */}
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl bg-dark-surface border border-white/10 p-4 text-center">
               <p className="text-xs text-gray-500">Visitas hoy</p>
@@ -302,7 +299,6 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
             </div>
           </div>
 
-          {/* Reporte 7 días */}
           <div>
             <h3 className="text-sm font-semibold text-white mb-3">Últimos 7 días</h3>
             <div className="rounded-xl bg-dark-surface border border-white/10 overflow-hidden">
@@ -333,12 +329,9 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
             </div>
           </div>
 
-          {/* Visitas del día con foto */}
           {(data.visitas?.length ?? 0) > 0 && (
             <div className="rounded-xl bg-dark-surface border border-white/10 overflow-hidden">
-              <p className="px-4 py-3 text-sm font-semibold text-white border-b border-white/10">
-                Visitas de hoy
-              </p>
+              <p className="px-4 py-3 text-sm font-semibold text-white border-b border-white/10">Visitas de hoy</p>
               <div className="divide-y divide-white/5">
                 {data.visitas.map((v: any) => (
                   <div key={v.id} className="px-4 py-3 space-y-2">
@@ -360,23 +353,9 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
                         )}
                       </div>
                     </div>
-
-                    {/* Foto de la visita */}
                     {v.foto_url ? (
-                      <button
-                        onClick={() => setFotoAmpliada(v.foto_url)}
-                        className="w-full rounded-xl overflow-hidden border border-white/10 relative group"
-                      >
-                        <img
-                          src={v.foto_url}
-                          alt="Foto visita"
-                          className="w-full object-cover h-32"
-                        />
-                        <div className="absolute inset-0 bg-black/0 group-active:bg-black/20 transition-colors flex items-center justify-center">
-                          <div className="opacity-0 group-active:opacity-100 bg-black/50 rounded-full p-2">
-                            <ImageIcon className="h-5 w-5 text-white" />
-                          </div>
-                        </div>
+                      <button onClick={() => setFotoAmpliada(v.foto_url)} className="w-full rounded-xl overflow-hidden border border-white/10 relative group">
+                        <img src={v.foto_url} alt="Foto visita" className="w-full object-cover h-32" />
                         <div className="absolute bottom-2 right-2 bg-black/50 rounded-lg px-2 py-0.5">
                           <p className="text-[10px] text-white">Toca para ampliar</p>
                         </div>
@@ -387,11 +366,7 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
                         <p className="text-[10px] text-gray-600">Sin foto en esta visita</p>
                       </div>
                     )}
-
-                    {/* Notas */}
-                    {v.notas && (
-                      <p className="text-[10px] text-gray-500 italic px-1">"{v.notas}"</p>
-                    )}
+                    {v.notas && <p className="text-[10px] text-gray-500 italic px-1">"{v.notas}"</p>}
                   </div>
                 ))}
               </div>
@@ -406,36 +381,107 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
 }
 
 // ============================================================================
-// ALERTAS
+// ALERTAS — visitas sospechosas + clientes duplicados
 // ============================================================================
-function AlertasView({ data }: { data: any }) {
+function AlertasView({ data, duplicados }: { data: any; duplicados: any[] }) {
   const alertas = data?.alertas ?? []
+  const { mutate } = useSWR('/api/clientes/reportar-duplicado?estado=pendiente', fetcher)
+  const [resolviendo, setResolviendo] = useState<string | null>(null)
+
+  const handleResolver = async (reporteId: string, accion: string) => {
+    setResolviendo(reporteId)
+    try {
+      await fetch('/api/clientes/reportar-duplicado', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reporte_id: reporteId, accion }),
+      })
+      mutate()
+    } catch {}
+    finally { setResolviendo(null) }
+  }
 
   return (
-    <div className="p-4 space-y-3">
-      <p className="text-xs text-gray-500">
-        {alertas.length > 0 ? `${alertas.length} alertas requieren atención` : 'Sin alertas por ahora'}
-      </p>
-      {alertas.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center rounded-xl bg-dark-surface border border-white/10">
-          <Check className="h-10 w-10 text-success mb-3" />
-          <p className="text-gray-400 text-sm">Todo en orden — sin visitas sospechosas hoy</p>
-        </div>
-      ) : (
-        alertas.map((a: any) => (
-          <div key={a.id} className="flex items-start gap-3 rounded-xl border border-warning/20 bg-warning/5 p-4">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-warning/20">
-              <AlertTriangle className="h-4 w-4 text-warning" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-white">{a.asesor}</p>
-              <p className="text-xs text-gray-400">{a.cliente} · {a.distancia_metros}m fuera del punto</p>
-              <p className="text-[10px] text-gray-600">{a.direccion}</p>
-            </div>
-            <span className="shrink-0 text-xs font-mono text-gray-500">{a.hora}</span>
+    <div className="p-4 space-y-4">
+
+      {/* Duplicados reportados */}
+      {duplicados.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-white mb-2 flex items-center gap-1.5">
+            <Copy className="h-3.5 w-3.5 text-warning" />
+            Duplicados reportados
+            <span className="rounded-full bg-warning/20 text-warning text-[10px] font-bold px-2 py-0.5">{duplicados.length}</span>
+          </p>
+          <div className="space-y-3">
+            {duplicados.map((r: any) => (
+              <div key={r.id} className="rounded-xl border border-warning/20 bg-warning/5 p-4 space-y-3">
+                <div className="flex items-start gap-2">
+                  <Flag className="h-4 w-4 text-warning mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white truncate">{r.cliente_nombre}</p>
+                    <p className="text-xs text-gray-400">{r.cliente_direccion}</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">Reportado por: {r.asesor_nombre}</p>
+                    {r.nota && <p className="text-xs text-gray-400 italic mt-1">"{r.nota}"</p>}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleResolver(r.id, 'confirmar_duplicado')}
+                    disabled={resolviendo === r.id}
+                    className="flex-1 rounded-lg bg-danger/20 border border-danger/30 py-2 text-xs font-semibold text-danger disabled:opacity-50 active:scale-95"
+                  >
+                    {resolviendo === r.id ? <Loader2 className="h-3 w-3 animate-spin mx-auto" /> : '🗑 Eliminar cliente'}
+                  </button>
+                  <button
+                    onClick={() => handleResolver(r.id, 'es_homonimo')}
+                    disabled={resolviendo === r.id}
+                    className="flex-1 rounded-lg bg-warning/20 border border-warning/30 py-2 text-xs font-semibold text-warning disabled:opacity-50 active:scale-95"
+                  >
+                    👥 Es homónimo
+                  </button>
+                  <button
+                    onClick={() => handleResolver(r.id, 'descartar')}
+                    disabled={resolviendo === r.id}
+                    className="flex-1 rounded-lg bg-white/5 border border-white/10 py-2 text-xs font-semibold text-gray-400 disabled:opacity-50 active:scale-95"
+                  >
+                    <X className="h-3 w-3 mx-auto" />
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
-        ))
+        </div>
       )}
+
+      {/* Visitas sospechosas */}
+      <div>
+        {alertas.length > 0 && (
+          <p className="text-xs font-semibold text-white mb-2 flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+            Visitas sospechosas
+          </p>
+        )}
+        {alertas.length === 0 && duplicados.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center rounded-xl bg-dark-surface border border-white/10">
+            <Check className="h-10 w-10 text-success mb-3" />
+            <p className="text-gray-400 text-sm">Todo en orden — sin alertas hoy</p>
+          </div>
+        ) : (
+          alertas.map((a: any) => (
+            <div key={a.id} className="flex items-start gap-3 rounded-xl border border-warning/20 bg-warning/5 p-4">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-warning/20">
+                <AlertTriangle className="h-4 w-4 text-warning" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white">{a.asesor}</p>
+                <p className="text-xs text-gray-400">{a.cliente} · {a.distancia_metros}m fuera del punto</p>
+                <p className="text-[10px] text-gray-600">{a.direccion}</p>
+              </div>
+              <span className="shrink-0 text-xs font-mono text-gray-500">{a.hora}</span>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   )
 }
@@ -452,11 +498,7 @@ function ReportesView({ data }: { data: any }) {
     const filas = [
       ['Asesor', 'Zona', 'Visitas hoy', 'Clientes asignados', 'Cumplimiento %'],
       ...equipo.map((a: any) => [
-        a.nombre,
-        a.zona || '—',
-        a.visitas_hoy,
-        a.clientes_asignados,
-        `${a.cumplimiento}%`
+        a.nombre, a.zona || '—', a.visitas_hoy, a.clientes_asignados, `${a.cumplimiento}%`
       ])
     ]
     descargarCSV(filas, `reporte-diario-${fecha}.csv`)
@@ -466,43 +508,29 @@ function ReportesView({ data }: { data: any }) {
     <div className="p-4 space-y-3">
       <p className="text-xs text-gray-500">Genera y descarga reportes de tu equipo</p>
       <div className="grid grid-cols-2 gap-3">
-        <button
-          onClick={descargarReporteDiario}
-          className="flex flex-col rounded-xl bg-dark-surface border border-white/10 p-4 text-left hover:border-navy-accent/50 transition-all active:scale-[0.98]"
-        >
+        <button onClick={descargarReporteDiario} className="flex flex-col rounded-xl bg-dark-surface border border-white/10 p-4 text-left hover:border-navy-accent/50 transition-all active:scale-[0.98]">
           <FileText className="mb-2 h-6 w-6 text-navy-accent" />
           <p className="text-sm font-semibold text-white">Reporte Diario</p>
           <p className="text-xs text-gray-500 mb-3">Visitas del día</p>
-          <span className="mt-auto rounded-lg bg-navy-accent px-3 py-2 text-xs font-semibold text-white text-center">
-            Descargar CSV
-          </span>
+          <span className="mt-auto rounded-lg bg-navy-accent px-3 py-2 text-xs font-semibold text-white text-center">Descargar CSV</span>
         </button>
-
         <div className="flex flex-col rounded-xl bg-dark-surface border border-white/10 p-4 opacity-50">
           <FileText className="mb-2 h-6 w-6 text-gray-500" />
           <p className="text-sm font-semibold text-white">Reporte Semanal</p>
           <p className="text-xs text-gray-500 mb-3">Próximamente</p>
-          <span className="mt-auto rounded-lg bg-gray-700 px-3 py-2 text-xs font-semibold text-gray-400 text-center">
-            Pronto
-          </span>
+          <span className="mt-auto rounded-lg bg-gray-700 px-3 py-2 text-xs font-semibold text-gray-400 text-center">Pronto</span>
         </div>
-
         <div className="flex flex-col rounded-xl bg-dark-surface border border-white/10 p-4 opacity-50">
           <FileText className="mb-2 h-6 w-6 text-gray-500" />
           <p className="text-sm font-semibold text-white">Cumplimiento TAT</p>
           <p className="text-xs text-gray-500 mb-3">Próximamente</p>
-          <span className="mt-auto rounded-lg bg-gray-700 px-3 py-2 text-xs font-semibold text-gray-400 text-center">
-            Pronto
-          </span>
+          <span className="mt-auto rounded-lg bg-gray-700 px-3 py-2 text-xs font-semibold text-gray-400 text-center">Pronto</span>
         </div>
-
         <div className="flex flex-col rounded-xl bg-dark-surface border border-white/10 p-4 opacity-50">
           <FileText className="mb-2 h-6 w-6 text-gray-500" />
           <p className="text-sm font-semibold text-white">Incidencias</p>
           <p className="text-xs text-gray-500 mb-3">Próximamente</p>
-          <span className="mt-auto rounded-lg bg-gray-700 px-3 py-2 text-xs font-semibold text-gray-400 text-center">
-            Pronto
-          </span>
+          <span className="mt-auto rounded-lg bg-gray-700 px-3 py-2 text-xs font-semibold text-gray-400 text-center">Pronto</span>
         </div>
       </div>
     </div>
@@ -517,8 +545,6 @@ function descargarCSV(filas: any[][], nombreArchivo: string) {
   const blob = new Blob(['\uFEFF' + contenido], { type: 'text/csv;charset=utf-8;' })
   const url  = URL.createObjectURL(blob)
   const a    = document.createElement('a')
-  a.href     = url
-  a.download = nombreArchivo
-  a.click()
+  a.href = url; a.download = nombreArchivo; a.click()
   URL.revokeObjectURL(url)
 }
