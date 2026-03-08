@@ -5,6 +5,7 @@
 // Si NO hay rutas → devuelve TODOS los clientes asignados al asesor
 // ✅ Incluye foto_url de la visita del día
 // ✅ Incluye clientes compartidos vía asesor_clientes
+// ✅ Incluye ultima_foto_url — foto de la última visita (persiste entre días)
 // ============================================================================
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
@@ -45,13 +46,24 @@ export async function GET(req: NextRequest) {
         v.validada,
         v.distancia_metros,
         v.timestamp AS visitado_en,
-        v.foto_url
+        v.foto_url,
+        uv.foto_url AS ultima_foto_url,
+        uv.timestamp AS ultima_visita_en
       FROM rutas_dia r
       JOIN clientes c ON c.id = r.cliente_id
       LEFT JOIN visitas v
         ON v.cliente_id = c.id
         AND v.asesor_id = ${asesorId}
-        AND v.timestamp::date = ${fecha}::date
+        AND (v.timestamp AT TIME ZONE 'America/Bogota')::date = ${fecha}::date
+      LEFT JOIN LATERAL (
+        SELECT foto_url, timestamp
+        FROM visitas
+        WHERE cliente_id = c.id
+          AND asesor_id = ${asesorId}
+          AND foto_url IS NOT NULL
+        ORDER BY timestamp DESC
+        LIMIT 1
+      ) uv ON true
       WHERE r.asesor_id = ${asesorId}
         AND r.fecha = ${fecha}::date
       ORDER BY r.orden ASC
@@ -72,12 +84,23 @@ export async function GET(req: NextRequest) {
         v.validada,
         v.distancia_metros,
         v.timestamp AS visitado_en,
-        v.foto_url
+        v.foto_url,
+        uv.foto_url AS ultima_foto_url,
+        uv.timestamp AS ultima_visita_en
       FROM clientes c
       LEFT JOIN visitas v
         ON v.cliente_id = c.id
         AND v.asesor_id = ${asesorId}
-        AND v.timestamp::date = ${fecha}::date
+        AND (v.timestamp AT TIME ZONE 'America/Bogota')::date = ${fecha}::date
+      LEFT JOIN LATERAL (
+        SELECT foto_url, timestamp
+        FROM visitas
+        WHERE cliente_id = c.id
+          AND asesor_id = ${asesorId}
+          AND foto_url IS NOT NULL
+        ORDER BY timestamp DESC
+        LIMIT 1
+      ) uv ON true
       WHERE c.asesor_id = ${asesorId}
         AND c.activo = true
 
@@ -96,16 +119,26 @@ export async function GET(req: NextRequest) {
         v.validada,
         v.distancia_metros,
         v.timestamp AS visitado_en,
-        v.foto_url
+        v.foto_url,
+        uv.foto_url AS ultima_foto_url,
+        uv.timestamp AS ultima_visita_en
       FROM asesor_clientes ac
       JOIN clientes c ON c.id = ac.cliente_id
       LEFT JOIN visitas v
         ON v.cliente_id = c.id
         AND v.asesor_id = ${asesorId}
-        AND v.timestamp::date = ${fecha}::date
+        AND (v.timestamp AT TIME ZONE 'America/Bogota')::date = ${fecha}::date
+      LEFT JOIN LATERAL (
+        SELECT foto_url, timestamp
+        FROM visitas
+        WHERE cliente_id = c.id
+          AND asesor_id = ${asesorId}
+          AND foto_url IS NOT NULL
+        ORDER BY timestamp DESC
+        LIMIT 1
+      ) uv ON true
       WHERE ac.asesor_id = ${asesorId}
         AND c.activo = true
-
       ORDER BY nombre ASC
     `;
   }
