@@ -45,6 +45,20 @@ const statusConfig: Record<ClientStatus, {
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
+// ── Caché offline ─────────────────────────────────────────────────────────
+function cacheKey(asesorId: string, fecha: string) {
+  return `clientes_cache_${asesorId}_${fecha}`
+}
+function guardarCacheClientes(asesorId: string, fecha: string, data: any) {
+  try { localStorage.setItem(cacheKey(asesorId, fecha), JSON.stringify(data)) } catch {}
+}
+function leerCacheClientes(asesorId: string, fecha: string): any | null {
+  try {
+    const raw = localStorage.getItem(cacheKey(asesorId, fecha))
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
 function getCurrentTime() {
   return new Date().toLocaleTimeString("es-CO", {
     timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit", second: "2-digit"
@@ -119,8 +133,9 @@ export function MiRuta({ asesor }: MiRutaProps) {
   const [clienteActivo, setClienteActivo] = useState<ClienteConEstado | null>(null)
   const [buscar, setBuscar]               = useState("")
   const [filtroRuta, setFiltroRuta]       = useState("")
+  const [cachedData, setCachedData]       = useState<any>(() => leerCacheClientes(asesor.id, fecha))
 
-  const { data, error, mutate } = useSWR(
+  const { data: fetchedData, error, mutate } = useSWR(
     `/api/clientes-del-dia?asesor_id=${ASESOR_ID}&fecha=${fecha}`,
     fetcher,
     { refreshInterval: 30000, revalidateOnFocus: true }
@@ -130,6 +145,17 @@ export function MiRuta({ asesor }: MiRutaProps) {
     fetcher,
     { refreshInterval: 30000 }
   )
+
+  // Cuando llegan datos frescos del servidor, actualizar caché
+  useEffect(() => {
+    if (fetchedData?.clientes) {
+      guardarCacheClientes(asesor.id, fecha, fetchedData)
+      setCachedData(fetchedData)
+    }
+  }, [fetchedData, asesor.id, fecha])
+
+  // data = datos frescos si hay señal, caché si no hay
+  const data = fetchedData ?? cachedData
 
   useEffect(() => {
     const t = setInterval(() => setCurrentTime(getCurrentTime()), 1000)
@@ -228,18 +254,22 @@ export function MiRuta({ asesor }: MiRutaProps) {
     )
   }
 
-  if (error) {
+  // Sin señal y sin caché → pantalla de error útil
+  if (!data && error) {
     return (
       <div className="flex h-screen items-center justify-center px-4">
         <div className="text-center">
-          <AlertTriangle className="mx-auto h-12 w-12 text-danger" />
-          <p className="mt-4 text-white">Error cargando clientes</p>
-          <button onClick={() => mutate()} className="mt-2 text-sm text-navy-accent hover:underline">Reintentar</button>
+          <WifiOff className="mx-auto h-12 w-12 text-warning" />
+          <p className="mt-4 text-white font-semibold">Sin conexión</p>
+          <p className="mt-1 text-sm text-gray-400">No hay datos guardados para hoy.</p>
+          <p className="text-xs text-gray-500 mt-1">Conéctate una vez para cargar tu ruta.</p>
+          <button onClick={() => mutate()} className="mt-4 text-sm text-navy-accent hover:underline">Reintentar</button>
         </div>
       </div>
     )
   }
 
+  // Sin señal pero CON caché → mostrar datos guardados (flujo offline normal)
   if (!data) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -250,6 +280,13 @@ export function MiRuta({ asesor }: MiRutaProps) {
 
   return (
     <div className="flex flex-col">
+      {/* Banner offline con caché */}
+      {!isOnline && (
+        <div className="flex items-center justify-center gap-2 bg-warning/20 border-b border-warning/30 px-4 py-2">
+          <WifiOff className="h-3.5 w-3.5 text-warning shrink-0" />
+          <p className="text-xs text-warning font-medium">Sin conexión — mostrando datos guardados · las visitas se sincronizarán al reconectar</p>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between px-4 pb-2 pt-4">
         <div className="flex items-center gap-3">
@@ -523,6 +560,10 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
 
   const handleCapturarGPS = async () => {
     if (!userLocation) { alert("Esperando GPS. Activa la ubicación."); return }
+    if (!hayConexion()) {
+      alert("Sin conexión — el GPS se guardará cuando recuperes señal.")
+      return
+    }
     setGuardandoGPS(true)
     try {
       const res = await fetch('/api/clientes', {
@@ -535,7 +576,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
       setDistancia(0)
       setMostrarActualizarGPS(false)
     } catch {
-      alert("Error guardando coordenadas. Intenta nuevamente.")
+      alert("Error guardando coordenadas. Verifica tu conexión e intenta nuevamente.")
     } finally {
       setGuardandoGPS(false)
     }
