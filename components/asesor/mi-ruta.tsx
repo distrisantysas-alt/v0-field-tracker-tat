@@ -573,8 +573,8 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
     setGuardandoGPS(true)
     try {
       if (!navigator.onLine) {
-        // Sin señal — guardar en localStorage, se sube al reconectar
-        guardarGPSOffline(cliente.id, userLocation.lat, userLocation.lng)
+        // Sin señal — guardar en IndexedDB, se sube al reconectar aunque cierren la app
+        await guardarGPSOffline(cliente.id, userLocation.lat, userLocation.lng)
         setGpsGuardado(true)
         setDistancia(0)
         setMostrarActualizarGPS(false)
@@ -590,8 +590,8 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
       setDistancia(0)
       setMostrarActualizarGPS(false)
     } catch {
-      // Falló el fetch — guardar offline de todas formas
-      guardarGPSOffline(cliente.id, userLocation.lat, userLocation.lng)
+      // Falló el fetch — guardar en IndexedDB de todas formas
+      await guardarGPSOffline(cliente.id, userLocation.lat, userLocation.lng)
       setGpsGuardado(true)
       setDistancia(0)
       setMostrarActualizarGPS(false)
