@@ -81,8 +81,8 @@ export interface VisitaOffline {
   hubo_pedido:   boolean;
   valor_pedido:  number;
   foto_url?:     string | null;
-  sin_gps?:      boolean;        // ← flag de control para supervisor
-  timestamp:     string; // ISO string
+  sin_gps?:      boolean;
+  timestamp:     string;
   synced:        false;
 }
 
@@ -90,46 +90,25 @@ export interface VisitaOffline {
 // HELPERS GPS
 // ---------------------------------------------------------------------------
 
-/**
- * Calcula distancia entre dos coordenadas GPS usando Haversine (en metros)
- * Esta función está disponible también en PostgreSQL como haversine_metros()
- */
 export function calcularDistanciaMetros(
-  lat1: number,
-  lng1: number,
-  lat2: number,
-  lng2: number
+  lat1: number, lng1: number, lat2: number, lng2: number
 ): number {
-  const R = 6371000; // Radio de la Tierra en metros
+  const R = 6371000;
   const toRad = (deg: number) => (deg * Math.PI) / 180;
-
   const dLat = toRad(lat2 - lat1);
   const dLng = toRad(lng2 - lng1);
-
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) *
-      Math.cos(toRad(lat2)) *
-      Math.sin(dLng / 2) *
-      Math.sin(dLng / 2);
-
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
 
-/**
- * Determina el estado de una visita según la distancia
- */
 export function determinarEstadoVisita(
-  distanciaMetros: number,
-  radioPermitido: number
-): {
-  validada: boolean;
-  estado: 'validada' | 'sospechosa';
-  mensaje: string;
-} {
+  distanciaMetros: number, radioPermitido: number
+): { validada: boolean; estado: 'validada' | 'sospechosa'; mensaje: string } {
   const validada = distanciaMetros <= radioPermitido;
-
   return {
     validada,
     estado: validada ? 'validada' : 'sospechosa',
@@ -139,42 +118,28 @@ export function determinarEstadoVisita(
   };
 }
 
-/**
- * Formatea distancia para mostrar en UI
- */
 export function formatearDistancia(metros: number): string {
-  if (metros < 1000) {
-    return `~${Math.round(metros)}m`;
-  }
+  if (metros < 1000) return `~${Math.round(metros)}m`;
   return `~${(metros / 1000).toFixed(1)}km`;
 }
 
 // ---------------------------------------------------------------------------
-// HELPERS OFFLINE (IndexedDB)
+// HELPERS OFFLINE — VISITAS (IndexedDB)
 // ---------------------------------------------------------------------------
 
 const DB_NAME = 'field-tracker-tat';
 const DB_VERSION = 1;
 const STORE_VISITAS_OFFLINE = 'visitas_pendientes';
 
-/**
- * Inicializa IndexedDB para almacenamiento offline
- */
 export function initOfflineDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
-
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve(request.result);
-
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
-
-      // Store para visitas pendientes de sincronizar
       if (!db.objectStoreNames.contains(STORE_VISITAS_OFFLINE)) {
-        const store = db.createObjectStore(STORE_VISITAS_OFFLINE, {
-          keyPath: 'offline_id',
-        });
+        const store = db.createObjectStore(STORE_VISITAS_OFFLINE, { keyPath: 'offline_id' });
         store.createIndex('timestamp', 'timestamp', { unique: false });
         store.createIndex('asesor_id', 'asesor_id', { unique: false });
       }
@@ -182,62 +147,40 @@ export function initOfflineDB(): Promise<IDBDatabase> {
   });
 }
 
-/**
- * Guarda una visita en IndexedDB (modo offline)
- */
-export async function guardarVisitaOffline(
-  visita: VisitaOffline
-): Promise<void> {
+export async function guardarVisitaOffline(visita: VisitaOffline): Promise<void> {
   const db = await initOfflineDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_VISITAS_OFFLINE, 'readwrite');
     const store = tx.objectStore(STORE_VISITAS_OFFLINE);
     const request = store.add(visita);
-
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
 }
 
-/**
- * Obtiene todas las visitas offline pendientes de sincronizar
- */
 export async function obtenerVisitasOffline(): Promise<VisitaOffline[]> {
   const db = await initOfflineDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_VISITAS_OFFLINE, 'readonly');
     const store = tx.objectStore(STORE_VISITAS_OFFLINE);
     const request = store.getAll();
-
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
 }
 
-/**
- * Elimina una visita offline después de sincronizar exitosamente
- */
-export async function eliminarVisitaOffline(
-  offline_id: string
-): Promise<void> {
+export async function eliminarVisitaOffline(offline_id: string): Promise<void> {
   const db = await initOfflineDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_VISITAS_OFFLINE, 'readwrite');
     const store = tx.objectStore(STORE_VISITAS_OFFLINE);
     const request = store.delete(offline_id);
-
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
 }
 
-/**
- * Sincroniza todas las visitas offline con el servidor
- */
-export async function sincronizarVisitasOffline(): Promise<{
-  sincronizadas: number;
-  errores: number;
-}> {
+export async function sincronizarVisitasOffline(): Promise<{ sincronizadas: number; errores: number }> {
   const visitasPendientes = await obtenerVisitasOffline();
   let sincronizadas = 0;
   let errores = 0;
@@ -256,11 +199,10 @@ export async function sincronizarVisitasOffline(): Promise<{
           hubo_pedido:  visita.hubo_pedido  ?? false,
           valor_pedido: visita.valor_pedido ?? 0,
           foto_url:     visita.foto_url     ?? null,
-          sin_gps:      visita.sin_gps      ?? false,  // ← flag de control
+          sin_gps:      visita.sin_gps      ?? false,
           offline_id:   visita.offline_id,
         }),
       });
-
       if (response.ok) {
         await eliminarVisitaOffline(visita.offline_id);
         sincronizadas++;
@@ -277,31 +219,76 @@ export async function sincronizarVisitasOffline(): Promise<{
 }
 
 // ---------------------------------------------------------------------------
+// HELPERS GPS OFFLINE (localStorage)
+// ✅ Permite capturar GPS del cliente sin señal y sincronizar al reconectar
+// ---------------------------------------------------------------------------
+
+const GPS_OFFLINE_KEY = 'dsroute_gps_pendientes'
+
+export interface GPSPendiente {
+  cliente_id: string
+  lat: number
+  lng: number
+  ts: string
+}
+
+export function guardarGPSOffline(clienteId: string, lat: number, lng: number): void {
+  try {
+    const raw = localStorage.getItem(GPS_OFFLINE_KEY)
+    const pendientes: Record<string, GPSPendiente> = raw ? JSON.parse(raw) : {}
+    pendientes[clienteId] = { cliente_id: clienteId, lat, lng, ts: new Date().toISOString() }
+    localStorage.setItem(GPS_OFFLINE_KEY, JSON.stringify(pendientes))
+  } catch {}
+}
+
+export function leerGPSPendientes(): Record<string, GPSPendiente> {
+  try {
+    const raw = localStorage.getItem(GPS_OFFLINE_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch { return {} }
+}
+
+export function eliminarGPSPendiente(clienteId: string): void {
+  try {
+    const raw = localStorage.getItem(GPS_OFFLINE_KEY)
+    const pendientes: Record<string, GPSPendiente> = raw ? JSON.parse(raw) : {}
+    delete pendientes[clienteId]
+    localStorage.setItem(GPS_OFFLINE_KEY, JSON.stringify(pendientes))
+  } catch {}
+}
+
+export async function sincronizarGPSPendientes(): Promise<void> {
+  const pendientes = leerGPSPendientes()
+  const ids = Object.keys(pendientes)
+  if (ids.length === 0) return
+  for (const clienteId of ids) {
+    const { lat, lng } = pendientes[clienteId]
+    try {
+      const res = await fetch('/api/clientes', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cliente_id: clienteId, lat, lng }),
+      })
+      if (res.ok) eliminarGPSPendiente(clienteId)
+    } catch {}
+  }
+}
+
+// ---------------------------------------------------------------------------
 // HELPERS DE VALIDACIÓN
 // ---------------------------------------------------------------------------
 
-/**
- * Verifica si el navegador soporta geolocalización
- */
 export function soportaGPS(): boolean {
   return 'geolocation' in navigator;
 }
 
-/**
- * Obtiene la posición GPS actual con timeout
- * Intento 1: Alta precisión (GPS físico / red móvil) — 8 segundos
- * Intento 2: Baja precisión (WiFi / IP) — fallback automático
- */
 export function obtenerPosicionGPS(): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
     if (!soportaGPS()) {
       reject(new Error('Geolocalización no soportada en este navegador'));
       return;
     }
-
-    // Intento 1: alta precisión
     navigator.geolocation.getCurrentPosition(resolve, () => {
-      // Intento 2: baja precisión (WiFi / IP)
       navigator.geolocation.getCurrentPosition(resolve, reject, {
         enableHighAccuracy: false,
         timeout: 15000,
@@ -315,16 +302,10 @@ export function obtenerPosicionGPS(): Promise<GeolocationPosition> {
   });
 }
 
-/**
- * Verifica si hay conexión a internet
- */
 export function hayConexion(): boolean {
   return navigator.onLine;
 }
 
-/**
- * Genera un ID único para visitas offline
- */
 export function generarOfflineID(): string {
   return `offline_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
