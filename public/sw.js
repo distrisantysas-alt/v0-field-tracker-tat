@@ -2,16 +2,14 @@
 // public/sw.js — Service Worker DSRoute
 // ✅ Versión automática — cambia en cada deploy de Vercel
 // ✅ Notifica al asesor cuando hay actualización disponible
-// ✅ Soporte offline intacto
+// ✅ El checkin offline lo maneja React/IndexedDB — SW no interfiere
 // ============================================================================
 
-const OFFLINE_QUEUE = 'dsroute-offline-visitas'
 const STATIC_ASSETS = ['/', '/offline.html']
 
 let APP_VERSION = 'init'
 let CACHE_NAME  = `dsroute-${APP_VERSION}`
 
-// ── Obtener versión del servidor al instalar ──────────────────────────────────
 async function fetchVersion() {
   try {
     const res = await fetch('/api/sw-version', { cache: 'no-store' })
@@ -22,7 +20,6 @@ async function fetchVersion() {
   }
 }
 
-// ── Instalación ──────────────────────────────────────────────────────────────
 self.addEventListener('install', (event) => {
   event.waitUntil(
     fetchVersion().then(async (version) => {
@@ -33,19 +30,18 @@ self.addEventListener('install', (event) => {
       await cache.addAll(STATIC_ASSETS)
     })
   )
-  // self.skipWaiting()
 })
 
-// ── Activación ───────────────────────────────────────────────────────────────
 self.addEventListener('activate', (event) => {
   console.log(`[SW] Activando versión ${APP_VERSION}`)
   event.waitUntil(
+    // Limpiar TODOS los cachés anteriores incluyendo la cola offline vieja
     caches.keys().then(keys =>
       Promise.all(
         keys
-          .filter(k => k !== CACHE_NAME && k !== OFFLINE_QUEUE)
+          .filter(k => k !== CACHE_NAME)
           .map(k => {
-            console.log(`[SW] Eliminando caché antigua: ${k}`)
+            console.log(`[SW] Eliminando caché: ${k}`)
             return caches.delete(k)
           })
       )
@@ -53,21 +49,16 @@ self.addEventListener('activate', (event) => {
   )
 })
 
-// ── Mensajes ─────────────────────────────────────────────────────────────────
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') {
-    console.log(`[SW] skipWaiting solicitado — activando versión ${APP_VERSION}`)
+    console.log(`[SW] skipWaiting solicitado`)
     self.skipWaiting()
-  }
-  if (event.data?.type === 'SYNC_NOW') {
-    syncVisitas()
   }
   if (event.data?.type === 'GET_VERSION') {
     event.source?.postMessage({ type: 'VERSION', version: APP_VERSION })
   }
 })
 
-// ── Fetch ─────────────────────────────────────────────────────────────────────
 self.addEventListener('fetch', (event) => {
   const { request } = event
   const url = new URL(request.url)
@@ -78,13 +69,21 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
+  // ✅ CRÍTICO: NO interceptar checkin ni upload-foto
+  // React maneja el offline de estas rutas con IndexedDB
+  if (
+    url.pathname === '/api/checkin' ||
+    url.pathname === '/api/upload-foto'
+  ) {
+    event.respondWith(fetch(request))
+    return
+  }
+
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(networkFirstApi(request))
     return
   }
 
-  // Para assets estáticos: network-first en vez de cache-first
-  // Esto asegura que siempre se intenten obtener los archivos más recientes
   if (
     request.destination === 'script' ||
     request.destination === 'style' ||
@@ -94,7 +93,6 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Imágenes sí pueden ser cache-first (no cambian entre deploys)
   if (request.destination === 'image') {
     event.respondWith(cacheFirst(request))
     return
@@ -106,9 +104,6 @@ self.addEventListener('fetch', (event) => {
   }
 })
 
-// ── Estrategias de caché ──────────────────────────────────────────────────────
-
-// Network first con fallback a caché (para scripts, styles, fonts)
 async function networkFirst(request) {
   try {
     const response = await fetch(request)
@@ -142,13 +137,6 @@ async function networkFirstApi(request) {
   } catch {
     const cached = await caches.match(request)
     if (cached) return cached
-    if (request.method === 'POST' && request.url.includes('/api/checkin')) {
-      await enqueueOfflineVisita(request)
-      return new Response(
-        JSON.stringify({ success: true, offline: true, message: 'Guardado offline' }),
-        { headers: { 'Content-Type': 'application/json' } }
-      )
-    }
     return new Response(
       JSON.stringify({ error: 'Sin conexión', offline: true }),
       { status: 503, headers: { 'Content-Type': 'application/json' } }
@@ -184,71 +172,3 @@ async function navigationHandler(request) {
     })
   }
 }
-
-// ── Queue offline ─────────────────────────────────────────────────────────────
-async function enqueueOfflineVisita(request) {
-  try {
-    const body = await request.clone().json()
-    const queue = await getOfflineQueue()
-    queue.push({
-      id: `offline_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      url: request.url,
-      body,
-      timestamp: new Date().toISOString(),
-    })
-    await saveOfflineQueue(queue)
-  } catch (e) {
-    console.error('Error encolando visita offline:', e)
-  }
-}
-
-async function getOfflineQueue() {
-  try {
-    const cache = await caches.open(OFFLINE_QUEUE)
-    const response = await cache.match('queue')
-    if (response) return await response.json()
-  } catch {}
-  return []
-}
-
-async function saveOfflineQueue(queue) {
-  const cache = await caches.open(OFFLINE_QUEUE)
-  await cache.put('queue', new Response(JSON.stringify(queue), {
-    headers: { 'Content-Type': 'application/json' }
-  }))
-}
-
-// ── Background Sync ───────────────────────────────────────────────────────────
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'sync-visitas') {
-    event.waitUntil(syncVisitas())
-  }
-})
-
-async function syncVisitas() {
-  const queue = await getOfflineQueue()
-  if (queue.length === 0) return
-  const pendientes = []
-  for (const item of queue) {
-    try {
-      const res = await fetch(item.url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(item.body),
-      })
-      if (!res.ok) pendientes.push(item)
-    } catch {
-      pendientes.push(item)
-    }
-  }
-  await saveOfflineQueue(pendientes)
-  const clients = await self.clients.matchAll()
-  clients.forEach(client => {
-    client.postMessage({
-      type: 'SYNC_COMPLETE',
-      sincronizadas: queue.length - pendientes.length,
-      pendientes: pendientes.length,
-    })
-  })
-}
-
