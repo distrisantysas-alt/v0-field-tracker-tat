@@ -26,6 +26,7 @@ import {
   obtenerPosicionGPS,
   hayConexion,
   guardarVisitaOffline,
+  eliminarVisitaOffline,
   sincronizarVisitasOffline,
   generarOfflineID,
 } from "@/lib/db"
@@ -166,10 +167,18 @@ export function MiRuta({ asesor }: MiRutaProps) {
     const update = () => setIsOnline(navigator.onLine)
     window.addEventListener('online', update)
     window.addEventListener('offline', update)
-    if (navigator.onLine) {
-      sincronizarVisitasOffline().then(({ sincronizadas }) => { if (sincronizadas > 0) mutate() })
-    }
     return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update) }
+  }, [])
+
+  // Sincronizar visitas pendientes cada vez que se recupera la conexión
+  useEffect(() => {
+    if (isOnline) {
+      sincronizarVisitasOffline().then(({ sincronizadas }) => {
+        if (sincronizadas > 0) {
+          mutate()
+        }
+      })
+    }
   }, [isOnline, mutate])
 
   useEffect(() => {
@@ -674,25 +683,10 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
         sin_gps:      sinGpsDispositivo,
       }
 
-      if (hayConexion()) {
-        try {
-          const controller = new AbortController()
-          const timer = setTimeout(() => controller.abort(), 12000)
-          const res = await fetch('/api/checkin', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-            signal: controller.signal,
-          })
-          clearTimeout(timer)
-          if (!res.ok) throw new Error()
-          onExito()
-          return
-        } catch {}
-      }
-
+      // Siempre guardar en IndexedDB primero
+      const offlineId = generarOfflineID()
       await guardarVisitaOffline({
-        offline_id:    generarOfflineID(),
+        offline_id:    offlineId,
         asesor_id:     payload.asesor_id,
         cliente_id:    payload.cliente_id,
         lat_capturada: payload.lat,
@@ -705,6 +699,27 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
         timestamp:     new Date().toISOString(),
         synced:        false,
       })
+
+      // Si hay conexión, intentar sincronizar inmediatamente
+      if (navigator.onLine) {
+        try {
+          const controller = new AbortController()
+          const timer = setTimeout(() => controller.abort(), 12000)
+          const res = await fetch('/api/checkin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...payload, offline_id: offlineId }),
+            signal: controller.signal,
+          })
+          clearTimeout(timer)
+          if (res.ok) {
+            await eliminarVisitaOffline(offlineId)
+          }
+        } catch {
+          // Sin problema — queda en IndexedDB y se sincroniza al reconectar
+        }
+      }
+
       onExito()
 
     } catch {
