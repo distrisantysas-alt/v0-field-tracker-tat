@@ -28,6 +28,8 @@ import {
   guardarVisitaOffline,
   eliminarVisitaOffline,
   sincronizarVisitasOffline,
+  sincronizarGPSPendientes,
+  guardarGPSOffline,
   generarOfflineID,
 } from "@/lib/db"
 import { type AsesorSession } from "./login-asesor"
@@ -174,10 +176,9 @@ export function MiRuta({ asesor }: MiRutaProps) {
   useEffect(() => {
     if (isOnline) {
       sincronizarVisitasOffline().then(({ sincronizadas }) => {
-        if (sincronizadas > 0) {
-          mutate()
-        }
+        if (sincronizadas > 0) mutate()
       })
+      sincronizarGPSPendientes()
     }
   }, [isOnline, mutate])
 
@@ -569,12 +570,16 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
 
   const handleCapturarGPS = async () => {
     if (!userLocation) { alert("Esperando GPS. Activa la ubicación."); return }
-    if (!hayConexion()) {
-      alert("Sin conexión — el GPS se guardará cuando recuperes señal.")
-      return
-    }
     setGuardandoGPS(true)
     try {
+      if (!navigator.onLine) {
+        // Sin señal — guardar en localStorage, se sube al reconectar
+        guardarGPSOffline(cliente.id, userLocation.lat, userLocation.lng)
+        setGpsGuardado(true)
+        setDistancia(0)
+        setMostrarActualizarGPS(false)
+        return
+      }
       const res = await fetch('/api/clientes', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -585,7 +590,11 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
       setDistancia(0)
       setMostrarActualizarGPS(false)
     } catch {
-      alert("Error guardando coordenadas. Verifica tu conexión e intenta nuevamente.")
+      // Falló el fetch — guardar offline de todas formas
+      guardarGPSOffline(cliente.id, userLocation.lat, userLocation.lng)
+      setGpsGuardado(true)
+      setDistancia(0)
+      setMostrarActualizarGPS(false)
     } finally {
       setGuardandoGPS(false)
     }
