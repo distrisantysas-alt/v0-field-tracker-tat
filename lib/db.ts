@@ -128,23 +128,12 @@ export function formatearDistancia(metros: number): string {
 // ---------------------------------------------------------------------------
 
 const DB_NAME = 'field-tracker-tat';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_VISITAS_OFFLINE = 'visitas_pendientes';
 
 export function initOfflineDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-    request.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(STORE_VISITAS_OFFLINE)) {
-        const store = db.createObjectStore(STORE_VISITAS_OFFLINE, { keyPath: 'offline_id' });
-        store.createIndex('timestamp', 'timestamp', { unique: false });
-        store.createIndex('asesor_id', 'asesor_id', { unique: false });
-      }
-    };
-  });
+  // Usa v2 para incluir el store de GPS pendientes
+  return initOfflineDBv2()
 }
 
 export async function guardarVisitaOffline(visita: VisitaOffline): Promise<void> {
@@ -219,11 +208,11 @@ export async function sincronizarVisitasOffline(): Promise<{ sincronizadas: numb
 }
 
 // ---------------------------------------------------------------------------
-// HELPERS GPS OFFLINE (localStorage)
-// ✅ Permite capturar GPS del cliente sin señal y sincronizar al reconectar
+// HELPERS GPS OFFLINE (IndexedDB)
+// ✅ GPS capturado sin señal → persiste aunque cierren la app → sube al reconectar
 // ---------------------------------------------------------------------------
 
-const GPS_OFFLINE_KEY = 'dsroute_gps_pendientes'
+const STORE_GPS_OFFLINE = 'gps_pendientes'
 
 export interface GPSPendiente {
   cliente_id: string
@@ -232,44 +221,69 @@ export interface GPSPendiente {
   ts: string
 }
 
-export function guardarGPSOffline(clienteId: string, lat: number, lng: number): void {
-  try {
-    const raw = localStorage.getItem(GPS_OFFLINE_KEY)
-    const pendientes: Record<string, GPSPendiente> = raw ? JSON.parse(raw) : {}
-    pendientes[clienteId] = { cliente_id: clienteId, lat, lng, ts: new Date().toISOString() }
-    localStorage.setItem(GPS_OFFLINE_KEY, JSON.stringify(pendientes))
-  } catch {}
+export function initOfflineDBv2(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 2)
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve(request.result)
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result
+      if (!db.objectStoreNames.contains(STORE_VISITAS_OFFLINE)) {
+        const store = db.createObjectStore(STORE_VISITAS_OFFLINE, { keyPath: 'offline_id' })
+        store.createIndex('timestamp', 'timestamp', { unique: false })
+        store.createIndex('asesor_id', 'asesor_id', { unique: false })
+      }
+      if (!db.objectStoreNames.contains(STORE_GPS_OFFLINE)) {
+        db.createObjectStore(STORE_GPS_OFFLINE, { keyPath: 'cliente_id' })
+      }
+    }
+  })
 }
 
-export function leerGPSPendientes(): Record<string, GPSPendiente> {
-  try {
-    const raw = localStorage.getItem(GPS_OFFLINE_KEY)
-    return raw ? JSON.parse(raw) : {}
-  } catch { return {} }
+export async function guardarGPSOffline(clienteId: string, lat: number, lng: number): Promise<void> {
+  const db = await initOfflineDBv2()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_GPS_OFFLINE, 'readwrite')
+    const store = tx.objectStore(STORE_GPS_OFFLINE)
+    const request = store.put({ cliente_id: clienteId, lat, lng, ts: new Date().toISOString() })
+    request.onsuccess = () => resolve()
+    request.onerror = () => reject(request.error)
+  })
 }
 
-export function eliminarGPSPendiente(clienteId: string): void {
-  try {
-    const raw = localStorage.getItem(GPS_OFFLINE_KEY)
-    const pendientes: Record<string, GPSPendiente> = raw ? JSON.parse(raw) : {}
-    delete pendientes[clienteId]
-    localStorage.setItem(GPS_OFFLINE_KEY, JSON.stringify(pendientes))
-  } catch {}
+export async function obtenerGPSPendientes(): Promise<GPSPendiente[]> {
+  const db = await initOfflineDBv2()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_GPS_OFFLINE, 'readonly')
+    const store = tx.objectStore(STORE_GPS_OFFLINE)
+    const request = store.getAll()
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+}
+
+export async function eliminarGPSPendiente(clienteId: string): Promise<void> {
+  const db = await initOfflineDBv2()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_GPS_OFFLINE, 'readwrite')
+    const store = tx.objectStore(STORE_GPS_OFFLINE)
+    const request = store.delete(clienteId)
+    request.onsuccess = () => resolve()
+    request.onerror = () => reject(request.error)
+  })
 }
 
 export async function sincronizarGPSPendientes(): Promise<void> {
-  const pendientes = leerGPSPendientes()
-  const ids = Object.keys(pendientes)
-  if (ids.length === 0) return
-  for (const clienteId of ids) {
-    const { lat, lng } = pendientes[clienteId]
+  const pendientes = await obtenerGPSPendientes()
+  if (pendientes.length === 0) return
+  for (const { cliente_id, lat, lng } of pendientes) {
     try {
       const res = await fetch('/api/clientes', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cliente_id: clienteId, lat, lng }),
+        body: JSON.stringify({ cliente_id, lat, lng }),
       })
-      if (res.ok) eliminarGPSPendiente(clienteId)
+      if (res.ok) await eliminarGPSPendiente(cliente_id)
     } catch {}
   }
 }
