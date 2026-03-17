@@ -18,7 +18,7 @@ import {
   Loader2, Wifi, WifiOff, DollarSign, Search,
   ChevronLeft, ChevronRight, ShoppingBag, Eye,
   Plus, UserPlus, Navigation, Camera, ImageIcon,
-  Edit2, Flag, Copy
+  Edit2, Flag, Copy, Phone
 } from "lucide-react"
 import {
   type ClienteConEstado,
@@ -516,11 +516,18 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
   const [distancia, setDistancia]           = useState<number | null>(null)
   const [mostrarActualizarGPS, setMostrarActualizarGPS] = useState(false)
 
-  // ── Editar dirección ──────────────────────────────────────────────────────
-  const [mostrarEditarDir, setMostrarEditarDir]   = useState(false)
-  const [nuevaDireccion, setNuevaDireccion]       = useState(cliente.direccion || "")
-  const [guardandoDir, setGuardandoDir]           = useState(false)
-  const [dirGuardada, setDirGuardada]             = useState(false)
+  // ── Editar cliente ────────────────────────────────────────────────────────
+  const rutaActual = getRuta(cliente.nombre)
+  const nombreActual = getNombreSinRuta(cliente.nombre)
+  const [mostrarEditarCliente, setMostrarEditarCliente] = useState(false)
+  const [editRuta, setEditRuta]           = useState(rutaActual === '—' ? '' : rutaActual)
+  const [editNombre, setEditNombre]       = useState(nombreActual)
+  const [editDireccion, setEditDireccion] = useState(cliente.direccion || "")
+  const [editTelefono, setEditTelefono]   = useState(cliente.telefono || "")
+  const [guardandoCliente, setGuardandoCliente] = useState(false)
+  const [clienteGuardado, setClienteGuardado]   = useState(false)
+  const [nombreMostrado, setNombreMostrado]     = useState(cliente.nombre)
+  const [dirMostrada, setDirMostrada]           = useState(cliente.direccion || "")
 
   // ── Reportar duplicado ────────────────────────────────────────────────────
   const [mostrarDuplicado, setMostrarDuplicado]   = useState(false)
@@ -580,42 +587,60 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
         setMostrarActualizarGPS(false)
         return
       }
-      const res = await fetch('/api/clientes', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cliente_id: cliente.id, lat: userLocation.lat, lng: userLocation.lng }),
-      })
-      if (!res.ok) throw new Error()
-      setGpsGuardado(true)
-      setDistancia(0)
-      setMostrarActualizarGPS(false)
-    } catch {
-      // Falló el fetch — guardar en IndexedDB de todas formas
-      await guardarGPSOffline(cliente.id, userLocation.lat, userLocation.lng)
-      setGpsGuardado(true)
-      setDistancia(0)
-      setMostrarActualizarGPS(false)
+      // Timeout de 8 segundos — si no responde, guarda offline
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 8000)
+      try {
+        const res = await fetch('/api/clientes', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cliente_id: cliente.id, lat: userLocation.lat, lng: userLocation.lng }),
+          signal: controller.signal,
+        })
+        clearTimeout(timer)
+        if (!res.ok) throw new Error()
+        setGpsGuardado(true)
+        setDistancia(0)
+        setMostrarActualizarGPS(false)
+      } catch {
+        clearTimeout(timer)
+        // Timeout o error — guardar en IndexedDB, sube al reconectar
+        await guardarGPSOffline(cliente.id, userLocation.lat, userLocation.lng)
+        setGpsGuardado(true)
+        setDistancia(0)
+        setMostrarActualizarGPS(false)
+      }
     } finally {
       setGuardandoGPS(false)
     }
   }
 
-  const handleGuardarDireccion = async () => {
-    if (!nuevaDireccion.trim()) { alert("Ingresa la nueva dirección"); return }
-    setGuardandoDir(true)
+  const handleGuardarCliente = async () => {
+    if (!editNombre.trim()) { alert("El nombre es obligatorio"); return }
+    setGuardandoCliente(true)
     try {
+      const nombreFinal = editRuta.trim()
+        ? `${editRuta.trim().toUpperCase()} ${editNombre.trim().toUpperCase()}`
+        : editNombre.trim().toUpperCase()
       const res = await fetch('/api/clientes', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cliente_id: cliente.id, direccion: nuevaDireccion.trim() }),
+        body: JSON.stringify({
+          cliente_id: cliente.id,
+          nombre:     nombreFinal,
+          direccion:  editDireccion.trim() || null,
+          telefono:   editTelefono.trim() || null,
+        }),
       })
       if (!res.ok) throw new Error()
-      setDirGuardada(true)
-      setMostrarEditarDir(false)
+      setClienteGuardado(true)
+      setNombreMostrado(nombreFinal)
+      setDirMostrada(editDireccion.trim())
+      setMostrarEditarCliente(false)
     } catch {
-      alert("Error guardando dirección. Intenta nuevamente.")
+      alert("Error guardando cambios. Intenta nuevamente.")
     } finally {
-      setGuardandoDir(false)
+      setGuardandoCliente(false)
     }
   }
 
@@ -756,8 +781,8 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
           <ChevronLeft className="h-5 w-5" />
         </button>
         <div className="flex-1 min-w-0">
-          <p className="text-xs text-gray-500 font-mono">Ruta {getRuta(cliente.nombre)}</p>
-          <h2 className="text-base font-bold text-white truncate">{getNombreSinRuta(cliente.nombre)}</h2>
+          <p className="text-xs text-gray-500 font-mono">Ruta {getRuta(nombreMostrado)}</p>
+          <h2 className="text-base font-bold text-white truncate">{getNombreSinRuta(nombreMostrado)}</h2>
         </div>
         {yaVisitado && (
           <span className="shrink-0 rounded-full bg-success/20 text-success text-xs font-bold px-2 py-0.5">YA VISITADO</span>
@@ -774,12 +799,12 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
           <div className="flex items-start gap-2">
             <MapPin className="h-4 w-4 text-gray-500 mt-0.5 shrink-0" />
             <p className="text-sm text-gray-300 flex-1">
-              {dirGuardada ? nuevaDireccion : (cliente.direccion || "Sin dirección")}
+              {dirMostrada || "Sin dirección"}
             </p>
             <button
-              onClick={() => setMostrarEditarDir(!mostrarEditarDir)}
+              onClick={() => { setMostrarEditarCliente(!mostrarEditarCliente); setMostrarActualizarGPS(false); setMostrarDuplicado(false) }}
               className="shrink-0 text-gray-600 hover:text-navy-accent transition-colors"
-              title="Editar dirección"
+              title="Editar cliente"
             >
               <Edit2 className="h-3.5 w-3.5" />
             </button>
@@ -794,7 +819,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
 
           <div className="flex items-center gap-3 pt-1 border-t border-white/5">
             <button
-              onClick={() => { setMostrarActualizarGPS(!mostrarActualizarGPS); setMostrarEditarDir(false); setMostrarDuplicado(false) }}
+              onClick={() => { setMostrarActualizarGPS(!mostrarActualizarGPS); setMostrarEditarCliente(false); setMostrarDuplicado(false) }}
               className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-navy-accent transition-colors"
             >
               <Navigation className="h-3.5 w-3.5" />
@@ -802,15 +827,15 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
             </button>
             <span className="text-gray-700">·</span>
             <button
-              onClick={() => { setMostrarEditarDir(!mostrarEditarDir); setMostrarActualizarGPS(false); setMostrarDuplicado(false) }}
+              onClick={() => { setMostrarEditarCliente(!mostrarEditarCliente); setMostrarActualizarGPS(false); setMostrarDuplicado(false) }}
               className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-navy-accent transition-colors"
             >
               <Edit2 className="h-3.5 w-3.5" />
-              Editar dirección
+              Editar cliente
             </button>
             <span className="text-gray-700">·</span>
             <button
-              onClick={() => { setMostrarDuplicado(!mostrarDuplicado); setMostrarActualizarGPS(false); setMostrarEditarDir(false) }}
+              onClick={() => { setMostrarDuplicado(!mostrarDuplicado); setMostrarActualizarGPS(false); setMostrarEditarCliente(false) }}
               className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-danger transition-colors"
             >
               <Copy className="h-3.5 w-3.5" />
@@ -819,37 +844,76 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
           </div>
         </div>
 
-        {/* Panel editar dirección */}
-        {mostrarEditarDir && !dirGuardada && (
+        {/* Panel editar cliente */}
+        {mostrarEditarCliente && !clienteGuardado && (
           <div className="rounded-xl border border-navy-accent/30 bg-navy-accent/5 p-4 space-y-3">
             <div className="flex items-center gap-2">
               <Edit2 className="h-4 w-4 text-navy-accent shrink-0" />
-              <p className="text-sm font-semibold text-white">Actualizar dirección</p>
+              <p className="text-sm font-semibold text-white">Editar datos del cliente</p>
             </div>
-            <input
-              type="text"
-              value={nuevaDireccion}
-              onChange={e => setNuevaDireccion(e.target.value)}
-              placeholder="Ej: Calle 5 #10-20 Local 3"
-              className="w-full rounded-xl border border-white/10 bg-dark-surface px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none"
-            />
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Ruta y nombre</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={editRuta}
+                  onChange={e => setEditRuta(e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase())}
+                  placeholder="Ruta"
+                  maxLength={4}
+                  className="w-20 rounded-xl border border-white/10 bg-dark-surface px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none text-center font-mono"
+                />
+                <input
+                  type="text"
+                  value={editNombre}
+                  onChange={e => setEditNombre(e.target.value)}
+                  placeholder="Nombre del cliente"
+                  className="flex-1 rounded-xl border border-white/10 bg-dark-surface px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none"
+                />
+              </div>
+              {(editRuta || editNombre) && (
+                <p className="mt-1 px-1 text-xs text-gray-500">
+                  Se guardará como: <span className="text-white font-mono">{editRuta ? `${editRuta} ` : ""}{editNombre.toUpperCase()}</span>
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Dirección</label>
+              <input
+                type="text"
+                value={editDireccion}
+                onChange={e => setEditDireccion(e.target.value)}
+                placeholder="Ej: Calle 5 #10-20 Local 3"
+                className="w-full rounded-xl border border-white/10 bg-dark-surface px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Teléfono</label>
+              <input
+                type="tel"
+                value={editTelefono}
+                onChange={e => setEditTelefono(e.target.value)}
+                placeholder="Ej: 3001234567"
+                inputMode="tel"
+                className="w-full rounded-xl border border-white/10 bg-dark-surface px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none"
+              />
+            </div>
             <button
-              onClick={handleGuardarDireccion}
-              disabled={guardandoDir || !nuevaDireccion.trim()}
+              onClick={handleGuardarCliente}
+              disabled={guardandoCliente || !editNombre.trim()}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-navy-accent/20 border border-navy-accent/40 py-2.5 text-sm font-semibold text-navy-accent transition-all active:scale-[0.97] disabled:opacity-50"
             >
-              {guardandoDir
+              {guardandoCliente
                 ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Guardando...</span></>
-                : <><Check className="h-4 w-4" /><span>Guardar dirección</span></>
+                : <><Check className="h-4 w-4" /><span>Guardar cambios</span></>
               }
             </button>
           </div>
         )}
 
-        {dirGuardada && (
+        {clienteGuardado && (
           <div className="rounded-xl border border-success/30 bg-success/10 p-3 flex items-center gap-2">
             <Check className="h-4 w-4 text-success shrink-0" />
-            <p className="text-sm text-success font-medium">Dirección actualizada ✓</p>
+            <p className="text-sm text-success font-medium">Datos del cliente actualizados ✓</p>
           </div>
         )}
 
