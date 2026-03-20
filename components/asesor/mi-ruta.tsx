@@ -529,6 +529,14 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
   const [nombreMostrado, setNombreMostrado]     = useState(cliente.nombre)
   const [dirMostrada, setDirMostrada]           = useState(cliente.direccion || "")
 
+  // ── Editar visita ya registrada ──────────────────────────────────────────
+  const [mostrarEditarVisita, setMostrarEditarVisita] = useState(false)
+  const [editHuboPedido, setEditHuboPedido]           = useState(!!cliente.hubo_pedido)
+  const [editMonto, setEditMonto]                     = useState(cliente.valor_pedido ? String(cliente.valor_pedido) : "")
+  const [guardandoVisita, setGuardandoVisita]         = useState(false)
+  const [visitaEditada, setVisitaEditada]             = useState(false)
+  const [visitaId, setVisitaId]                       = useState<string | null>(null)
+
   // ── Reportar duplicado ────────────────────────────────────────────────────
   const [mostrarDuplicado, setMostrarDuplicado]   = useState(false)
   const [notaDuplicado, setNotaDuplicado]         = useState("")
@@ -556,6 +564,45 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
       }
     }
   }, [userLocation, cliente.lat, cliente.lng])
+
+  // Cargar visita_id del día si ya fue visitado
+  useEffect(() => {
+    if (cliente.visitado_en && asesorId) {
+      const fecha = fechaColombia()
+      fetch(`/api/checkin/visita-hoy?asesor_id=${asesorId}&cliente_id=${cliente.id}&fecha=${fecha}`)
+        .then(r => r.json())
+        .then(d => { if (d.visita_id) setVisitaId(d.visita_id) })
+        .catch(() => {})
+    }
+  }, [cliente.id, cliente.visitado_en, asesorId])
+
+  const handleEditarVisita = async () => {
+    if (!visitaId) { alert("No se encontró la visita de hoy"); return }
+    if (editHuboPedido && (!editMonto || parseFloat(editMonto) <= 0)) {
+      alert("Ingresa el monto del pedido"); return
+    }
+    setGuardandoVisita(true)
+    try {
+      const res = await fetch('/api/checkin', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visita_id:   visitaId,
+          asesor_id:   asesorId,
+          hubo_pedido: editHuboPedido,
+          valor_pedido: editHuboPedido ? parseFloat(editMonto) : 0,
+        }),
+      })
+      if (!res.ok) throw new Error()
+      setVisitaEditada(true)
+      setMostrarEditarVisita(false)
+      onExito()
+    } catch {
+      alert("Error editando la visita. Intenta nuevamente.")
+    } finally {
+      setGuardandoVisita(false)
+    }
+  }
 
   const handleAbrirCamara = () => fileInputRef.current?.click()
 
@@ -1046,13 +1093,30 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
 
         {/* Ya visitado */}
         {yaVisitado ? (
-          <div className="rounded-xl bg-dark-surface border border-white/10 p-4">
-            <p className="text-sm font-semibold text-white mb-3">Registro de hoy</p>
+          <div className="rounded-xl bg-dark-surface border border-white/10 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-white">Registro de hoy</p>
+              <button
+                onClick={() => setMostrarEditarVisita(!mostrarEditarVisita)}
+                className="flex items-center gap-1 text-xs text-gray-500 hover:text-navy-accent transition-colors"
+              >
+                <Edit2 className="h-3.5 w-3.5" /> Editar
+              </button>
+            </div>
             <div className="space-y-2 text-sm text-gray-400">
               <div className="flex justify-between">
                 <span>Estado</span>
                 <span className={cliente.validada ? "text-success font-medium" : "text-warning font-medium"}>
                   {cliente.validada ? "✓ Validada" : "⚠ Sospechosa"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Tipo</span>
+                <span className="text-white font-medium">
+                  {visitaEditada
+                    ? (editHuboPedido ? `💰 Pedido · $${parseFloat(editMonto).toLocaleString('es-CO')}` : '👁 Solo visita')
+                    : (cliente.hubo_pedido ? `💰 Pedido · $${Number(cliente.valor_pedido).toLocaleString('es-CO')}` : '👁 Solo visita')
+                  }
                 </span>
               </div>
               {cliente.distancia_metros && (
@@ -1061,10 +1125,66 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
                   <span className="text-white">{formatearDistancia(cliente.distancia_metros)}</span>
                 </div>
               )}
-              {!cliente.foto_url && (
-                <p className="text-xs text-gray-600 text-center pt-1">Sin foto en esta visita</p>
-              )}
             </div>
+
+            {/* Panel editar visita */}
+            {mostrarEditarVisita && (
+              <div className="rounded-xl border border-navy-accent/30 bg-navy-accent/5 p-4 space-y-3 mt-2">
+                <p className="text-sm font-semibold text-white">Editar registro</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => { setEditHuboPedido(false); setEditMonto("") }}
+                    className={`flex flex-col items-center gap-1 rounded-xl border p-3 transition-all ${
+                      !editHuboPedido ? 'border-navy-accent bg-navy-accent/20 text-white' : 'border-white/10 bg-dark-surface text-gray-400'
+                    }`}
+                  >
+                    <Eye className={`h-5 w-5 ${!editHuboPedido ? 'text-navy-accent' : 'text-gray-500'}`} />
+                    <span className="text-xs font-semibold">Solo Visita</span>
+                  </button>
+                  <button
+                    onClick={() => setEditHuboPedido(true)}
+                    className={`flex flex-col items-center gap-1 rounded-xl border p-3 transition-all ${
+                      editHuboPedido ? 'border-success bg-success/20 text-white' : 'border-white/10 bg-dark-surface text-gray-400'
+                    }`}
+                  >
+                    <ShoppingBag className={`h-5 w-5 ${editHuboPedido ? 'text-success' : 'text-gray-500'}`} />
+                    <span className="text-xs font-semibold">Hubo Pedido</span>
+                  </button>
+                </div>
+                {editHuboPedido && (
+                  <div className="rounded-xl bg-dark-surface border border-success/30 p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg font-bold text-gray-400">$</span>
+                      <input
+                        type="number"
+                        value={editMonto}
+                        onChange={e => setEditMonto(e.target.value)}
+                        placeholder="0"
+                        min="0"
+                        step="1000"
+                        inputMode="numeric"
+                        autoFocus
+                        className="flex-1 bg-transparent text-2xl font-bold text-white placeholder-gray-600 focus:outline-none"
+                      />
+                      <span className="text-sm text-gray-500">COP</span>
+                    </div>
+                    {editMonto && parseFloat(editMonto) > 0 && (
+                      <p className="mt-1 text-xs text-success">${parseFloat(editMonto).toLocaleString('es-CO')}</p>
+                    )}
+                  </div>
+                )}
+                <button
+                  onClick={handleEditarVisita}
+                  disabled={guardandoVisita || (editHuboPedido && (!editMonto || parseFloat(editMonto) <= 0))}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-navy-accent/20 border border-navy-accent/40 py-2.5 text-sm font-semibold text-navy-accent transition-all active:scale-[0.97] disabled:opacity-50"
+                >
+                  {guardandoVisita
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Guardando...</span></>
+                    : <><Check className="h-4 w-4" /><span>Guardar cambios</span></>
+                  }
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <>
