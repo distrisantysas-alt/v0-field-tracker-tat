@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     // Las rutas están codificadas como prefijo del nombre del cliente: "6C cliente_nombre"
     const clientes = await sql`
       SELECT id, nombre FROM clientes
-      WHERE asesor_id = ${asesor_origen_id}
+      WHERE asesor_id = ${asesor_origen_id}::uuid
       AND activo = true
     `
 
@@ -121,7 +121,7 @@ export async function DELETE(req: NextRequest) {
     // Obtener IDs de clientes a quitar
     const clientes = await sql`
       SELECT id, nombre FROM clientes
-      WHERE asesor_id = ${asesor_origen_id}
+      WHERE asesor_id = ${asesor_origen_id}::uuid
       AND activo = true
     `
 
