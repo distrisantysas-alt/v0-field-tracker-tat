@@ -29,11 +29,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Asesor no encontrado' }, { status: 404 })
     }
 
-    // Obtener clientes del asesor origen que pertenezcan a las rutas seleccionadas
+    // Obtener clientes propios + compartidos del asesor origen
     const clientes = await sql`
       SELECT id, nombre FROM clientes
-      WHERE asesor_id = ${asesor_origen_id}::uuid
-      AND activo = true
+      WHERE asesor_id = ${asesor_origen_id}::uuid AND activo = true
+      UNION
+      SELECT c.id, c.nombre FROM clientes c
+      INNER JOIN asesor_clientes ac ON ac.cliente_id = c.id
+      WHERE ac.asesor_id = ${asesor_origen_id}::uuid AND c.activo = true
     `
 
     // Filtrar por rutas seleccionadas (el prefijo antes del primer espacio)
@@ -44,14 +47,7 @@ export async function POST(req: NextRequest) {
     })
 
     if (clientesFiltrados.length === 0) {
-      return NextResponse.json({
-        error: 'No se encontraron clientes para las rutas seleccionadas',
-        debug: {
-          total_clientes_query: clientes.length,
-          rutas_buscadas: rutas,
-          muestra_nombres: clientes.slice(0, 5).map((c: any) => c.nombre)
-        }
-      }, { status: 404 })
+      return NextResponse.json({ error: 'No se encontraron clientes para las rutas seleccionadas' }, { status: 404 })
     }
 
     // Insertar en asesor_clientes (ON CONFLICT DO NOTHING para no duplicar)
@@ -126,8 +122,11 @@ export async function DELETE(req: NextRequest) {
 
     const clientes = await sql`
       SELECT id, nombre FROM clientes
-      WHERE asesor_id = ${asesor_origen_id}::uuid
-      AND activo = true
+      WHERE asesor_id = ${asesor_origen_id}::uuid AND activo = true
+      UNION
+      SELECT c.id, c.nombre FROM clientes c
+      INNER JOIN asesor_clientes ac ON ac.cliente_id = c.id
+      WHERE ac.asesor_id = ${asesor_origen_id}::uuid AND c.activo = true
     `
 
     const clientesFiltrados = rutas?.length
