@@ -21,8 +21,8 @@ export async function POST(req: NextRequest) {
 
     // Obtener nombres de asesores para la respuesta
     const [origen, destino] = await Promise.all([
-      sql`SELECT nombre FROM asesores WHERE id = ${asesor_origen_id} LIMIT 1`,
-      sql`SELECT nombre FROM asesores WHERE id = ${asesor_destino_id} LIMIT 1`,
+      sql`SELECT nombre FROM asesores WHERE id = ${asesor_origen_id}::uuid LIMIT 1`,
+      sql`SELECT nombre FROM asesores WHERE id = ${asesor_destino_id}::uuid LIMIT 1`,
     ])
 
     if (!origen.length || !destino.length) {
@@ -30,7 +30,6 @@ export async function POST(req: NextRequest) {
     }
 
     // Obtener clientes del asesor origen que pertenezcan a las rutas seleccionadas
-    // Las rutas están codificadas como prefijo del nombre del cliente: "6C cliente_nombre"
     const clientes = await sql`
       SELECT id, nombre FROM clientes
       WHERE asesor_id = ${asesor_origen_id}::uuid
@@ -45,7 +44,14 @@ export async function POST(req: NextRequest) {
     })
 
     if (clientesFiltrados.length === 0) {
-      return NextResponse.json({ error: 'No se encontraron clientes para las rutas seleccionadas' }, { status: 404 })
+      return NextResponse.json({
+        error: 'No se encontraron clientes para las rutas seleccionadas',
+        debug: {
+          total_clientes_query: clientes.length,
+          rutas_buscadas: rutas,
+          muestra_nombres: clientes.slice(0, 5).map((c: any) => c.nombre)
+        }
+      }, { status: 404 })
     }
 
     // Insertar en asesor_clientes (ON CONFLICT DO NOTHING para no duplicar)
@@ -53,7 +59,7 @@ export async function POST(req: NextRequest) {
     for (const cliente of clientesFiltrados) {
       await sql`
         INSERT INTO asesor_clientes (asesor_id, cliente_id)
-        VALUES (${asesor_destino_id}, ${cliente.id})
+        VALUES (${asesor_destino_id}::uuid, ${cliente.id})
         ON CONFLICT (asesor_id, cliente_id) DO NOTHING
       `
       compartidos++
@@ -97,7 +103,7 @@ export async function GET(req: NextRequest) {
       FROM asesor_clientes ac
       JOIN clientes c ON c.id = ac.cliente_id
       JOIN asesores a ON a.id = c.asesor_id
-      WHERE ac.asesor_id = ${asesor_id}
+      WHERE ac.asesor_id = ${asesor_id}::uuid
       AND c.activo = true
       ORDER BY c.nombre
     `
@@ -118,7 +124,6 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Faltan datos' }, { status: 400 })
     }
 
-    // Obtener IDs de clientes a quitar
     const clientes = await sql`
       SELECT id, nombre FROM clientes
       WHERE asesor_id = ${asesor_origen_id}::uuid
@@ -137,7 +142,7 @@ export async function DELETE(req: NextRequest) {
     for (const cliente of clientesFiltrados) {
       await sql`
         DELETE FROM asesor_clientes
-        WHERE asesor_id = ${asesor_destino_id}
+        WHERE asesor_id = ${asesor_destino_id}::uuid
         AND cliente_id = ${cliente.id}
       `
       eliminados++
@@ -149,4 +154,3 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Error eliminando clientes compartidos' }, { status: 500 })
   }
 }
-
