@@ -149,3 +149,4 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Error eliminando clientes compartidos' }, { status: 500 })
   }
 }
+
