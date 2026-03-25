@@ -6,6 +6,7 @@
 // ✅ Incluye foto_url de la visita del día
 // ✅ Incluye clientes compartidos vía asesor_clientes
 // ✅ Incluye ultima_foto_url — foto de la última visita (persiste entre días)
+// ✅ Incluye clientes nuevos creados por el asesor aunque no estén en rutas_dia
 // ============================================================================
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
@@ -31,7 +32,8 @@ export async function GET(req: NextRequest) {
   let clientes;
 
   if (tieneRutas) {
-    // ── Con rutas_dia: respeta el orden asignado ─────────────────────────
+    // ── Con rutas_dia: respeta el orden asignado
+    // ── UNION con clientes propios no incluidos en rutas_dia (ej: creados nuevos)
     clientes = await sql`
       SELECT
         c.id,
@@ -66,7 +68,87 @@ export async function GET(req: NextRequest) {
       ) uv ON true
       WHERE r.asesor_id = ${asesorId}
         AND r.fecha = ${fecha}::date
-      ORDER BY r.orden ASC
+
+      UNION
+
+      SELECT
+        c.id,
+        c.codigo,
+        c.nombre,
+        c.direccion,
+        c.lat,
+        c.lng,
+        c.radio_metros,
+        0 AS orden,
+        false AS completada,
+        v.validada,
+        v.distancia_metros,
+        v.timestamp AS visitado_en,
+        v.foto_url,
+        uv.foto_url AS ultima_foto_url,
+        uv.timestamp AS ultima_visita_en
+      FROM clientes c
+      LEFT JOIN visitas v
+        ON v.cliente_id = c.id
+        AND v.asesor_id = ${asesorId}
+        AND (v.timestamp AT TIME ZONE 'America/Bogota')::date = ${fecha}::date
+      LEFT JOIN LATERAL (
+        SELECT foto_url, timestamp
+        FROM visitas
+        WHERE cliente_id = c.id
+          AND asesor_id = ${asesorId}
+          AND foto_url IS NOT NULL
+        ORDER BY timestamp DESC
+        LIMIT 1
+      ) uv ON true
+      WHERE c.asesor_id = ${asesorId}
+        AND c.activo = true
+        AND c.id NOT IN (
+          SELECT cliente_id FROM rutas_dia
+          WHERE asesor_id = ${asesorId} AND fecha = ${fecha}::date
+        )
+
+      UNION
+
+      SELECT
+        c.id,
+        c.codigo,
+        c.nombre,
+        c.direccion,
+        c.lat,
+        c.lng,
+        c.radio_metros,
+        0 AS orden,
+        false AS completada,
+        v.validada,
+        v.distancia_metros,
+        v.timestamp AS visitado_en,
+        v.foto_url,
+        uv.foto_url AS ultima_foto_url,
+        uv.timestamp AS ultima_visita_en
+      FROM asesor_clientes ac
+      JOIN clientes c ON c.id = ac.cliente_id
+      LEFT JOIN visitas v
+        ON v.cliente_id = c.id
+        AND v.asesor_id = ${asesorId}
+        AND (v.timestamp AT TIME ZONE 'America/Bogota')::date = ${fecha}::date
+      LEFT JOIN LATERAL (
+        SELECT foto_url, timestamp
+        FROM visitas
+        WHERE cliente_id = c.id
+          AND asesor_id = ${asesorId}
+          AND foto_url IS NOT NULL
+        ORDER BY timestamp DESC
+        LIMIT 1
+      ) uv ON true
+      WHERE ac.asesor_id = ${asesorId}
+        AND c.activo = true
+        AND c.id NOT IN (
+          SELECT cliente_id FROM rutas_dia
+          WHERE asesor_id = ${asesorId} AND fecha = ${fecha}::date
+        )
+
+      ORDER BY orden ASC, nombre ASC
     `;
   } else {
     // ── Sin rutas_dia: clientes propios + clientes compartidos ───────────
