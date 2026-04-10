@@ -1,22 +1,13 @@
 // ============================================================================
 // app/api/admin/reasignar/route.ts
 // ============================================================================
-// POST → reasignar clientes de un asesor a otro
-// Puede ser por rutas específicas o todas las rutas
-// ============================================================================
-
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const {
-      asesor_origen_id,   // asesor que se va
-      asesor_destino_id,  // asesor que recibe
-      rutas,              // array de rutas ej: ["75", "23"] — si es null/vacío reasigna todo
-      desactivar_origen,  // true = marcar asesor origen como inactivo
-    } = body;
+    const { asesor_origen_id, asesor_destino_id, rutas, desactivar_origen } = body;
 
     if (!asesor_origen_id || !asesor_destino_id) {
       return NextResponse.json(
@@ -32,53 +23,69 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let clientesActualizados = 0;
+    // Obtener TODOS los clientes del asesor origen primero
+    const todosClientes = await sql`
+      SELECT id, nombre FROM clientes
+      WHERE asesor_id = ${asesor_origen_id}
+        AND activo = true
+    `
 
+    let clientesAMover = todosClientes
+
+    // Si hay rutas específicas, filtrar por prefijo
     if (rutas && rutas.length > 0) {
-      // ── Reasignar solo las rutas seleccionadas ───────────────────────
-      // Cada ruta es el prefijo del nombre del cliente (ej: "75" para "75 HENRY DIAZ")
-      for (const ruta of rutas) {
-        const patron = `${ruta} %`;
-        const result = await sql`
-          UPDATE clientes
-          SET asesor_id = ${asesor_destino_id}
-          WHERE asesor_id = ${asesor_origen_id}
-            AND activo = true
-            AND nombre ILIKE ${patron}
-        `;
-        clientesActualizados += result.count ?? 0;
-      }
-    } else {
-      // ── Reasignar TODOS los clientes del asesor origen ───────────────
-      const result = await sql`
-        UPDATE clientes
-        SET asesor_id = ${asesor_destino_id}
-        WHERE asesor_id = ${asesor_origen_id}
-          AND activo = true
-      `;
-      clientesActualizados = result.count ?? 0;
+      clientesAMover = todosClientes.filter((c: any) => {
+        const match = c.nombre?.match(/^([A-Z0-9]+)\s/i)
+        const ruta = match ? match[1].toUpperCase() : null
+        return ruta && rutas.map((r: string) => r.toUpperCase()).includes(ruta)
+      })
     }
 
-    // ── Desactivar asesor origen si se pidió ─────────────────────────
+    if (clientesAMover.length === 0) {
+      const origen  = await sql`SELECT nombre FROM asesores WHERE id = ${asesor_origen_id}`
+      const destino = await sql`SELECT nombre FROM asesores WHERE id = ${asesor_destino_id}`
+      return NextResponse.json({
+        success: true,
+        mensaje: '0 clientes reasignados — verifica las rutas seleccionadas',
+        detalle: {
+          de: origen[0]?.nombre,
+          a: destino[0]?.nombre,
+          clientes_movidos: 0,
+          rutas_reasignadas: rutas ?? 'todas',
+          asesor_desactivado: false,
+        }
+      })
+    }
+
+    // Reasignar uno a uno para contar correctamente
+    const ids = clientesAMover.map((c: any) => c.id)
+
+    await sql`
+      UPDATE clientes
+      SET asesor_id = ${asesor_destino_id}
+      WHERE id = ANY(${ids}::uuid[])
+    `
+
+    const clientesMovidos = ids.length
+
     if (desactivar_origen) {
-      await sql`
-        UPDATE asesores SET activo = false WHERE id = ${asesor_origen_id}
-      `;
+      await sql`UPDATE asesores SET activo = false WHERE id = ${asesor_origen_id}`
     }
 
-    // ── Info del resultado ────────────────────────────────────────────
-    const origen  = await sql`SELECT nombre FROM asesores WHERE id = ${asesor_origen_id}`;
-    const destino = await sql`SELECT nombre FROM asesores WHERE id = ${asesor_destino_id}`;
+    const origen  = await sql`SELECT nombre FROM asesores WHERE id = ${asesor_origen_id}`
+    const destino = await sql`SELECT nombre FROM asesores WHERE id = ${asesor_destino_id}`
+
+    console.log(`✅ Reasignados ${clientesMovidos} clientes de ${origen[0]?.nombre} → ${destino[0]?.nombre}`)
 
     return NextResponse.json({
       success: true,
-      mensaje: `${clientesActualizados} clientes reasignados correctamente`,
+      mensaje: `${clientesMovidos} clientes reasignados correctamente`,
       detalle: {
-        de:                  origen[0]?.nombre,
-        a:                   destino[0]?.nombre,
-        clientes_movidos:    clientesActualizados,
-        rutas_reasignadas:   rutas?.length > 0 ? rutas : 'todas',
-        asesor_desactivado:  desactivar_origen ?? false,
+        de:                 origen[0]?.nombre,
+        a:                  destino[0]?.nombre,
+        clientes_movidos:   clientesMovidos,
+        rutas_reasignadas:  rutas?.length > 0 ? rutas : 'todas',
+        asesor_desactivado: desactivar_origen ?? false,
       }
     });
 
