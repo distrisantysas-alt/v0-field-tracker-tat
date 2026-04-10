@@ -567,13 +567,14 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
 
   // Cargar visita_id del día si ya fue visitado
   useEffect(() => {
-    if (cliente.visitado_en && asesorId) {
-      const fecha = fechaColombia()
-      fetch(`/api/checkin/visita-hoy?asesor_id=${asesorId}&cliente_id=${cliente.id}&fecha=${fecha}`)
-        .then(r => r.json())
-        .then(d => { if (d.visita_id) setVisitaId(d.visita_id) })
-        .catch(() => {})
-    }
+    if (!cliente.visitado_en || !asesorId) return
+    let cancelado = false
+    const fecha = fechaColombia()
+    fetch(`/api/checkin/visita-hoy?asesor_id=${asesorId}&cliente_id=${cliente.id}&fecha=${fecha}`)
+      .then(r => r.json())
+      .then(d => { if (!cancelado && d.visita_id) setVisitaId(d.visita_id) })
+      .catch(() => {})
+    return () => { cancelado = true }
   }, [cliente.id, cliente.visitado_en, asesorId])
 
   const handleEditarVisita = async () => {
@@ -596,7 +597,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
       if (!res.ok) throw new Error()
       setVisitaEditada(true)
       setMostrarEditarVisita(false)
-      onExito()
+      // No llamar onExito() — evita desmontar el componente y congelar pantalla
     } catch {
       alert("Error editando la visita. Intenta nuevamente.")
     } finally {
