@@ -10,7 +10,7 @@ import useSWR from "swr"
 import {
   MapPin, Package, DollarSign, ChevronDown, ChevronUp,
   Loader2, AlertTriangle, Navigation, Phone, X,
-  LogOut, RefreshCw, Map, List
+  LogOut, RefreshCw, Map, List, Users, Search
 } from "lucide-react"
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
@@ -44,13 +44,19 @@ interface EntregadorLayoutProps {
 }
 
 export function EntregadorLayout({ entregador, onLogout }: EntregadorLayoutProps) {
-  const [vista, setVista] = useState<'lista' | 'mapa'>('lista')
+  const [vista, setVista] = useState<'pedidos' | 'clientes' | 'mapa'>('pedidos')
   const [expandido, setExpandido] = useState<string | null>(null)
   const [pedidoSel, setPedidoSel] = useState<any>(null)
   const fecha = fechaColombia()
 
   const { data, isLoading, mutate } = useSWR(
     `/api/entregador/pedidos-dia?fecha=${fecha}`,
+    fetcher,
+    { refreshInterval: 60000 }
+  )
+
+  const { data: dataClientes, isLoading: loadingClientes } = useSWR(
+    `/api/entregador/clientes?fecha=${fecha}`,
     fetcher,
     { refreshInterval: 60000 }
   )
@@ -108,20 +114,28 @@ export function EntregadorLayout({ entregador, onLogout }: EntregadorLayoutProps
       {/* Toggle vista */}
       <div className="flex gap-2 px-4 pt-3">
         <button
-          onClick={() => setVista('lista')}
-          className={`flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all ${
-            vista === 'lista' ? 'bg-orange-500 text-white' : 'bg-dark-surface text-gray-400 border border-white/10'
+          onClick={() => setVista('pedidos')}
+          className={`flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-semibold transition-all ${
+            vista === 'pedidos' ? 'bg-orange-500 text-white' : 'bg-dark-surface text-gray-400 border border-white/10'
           }`}
         >
-          <List className="h-4 w-4" /> Lista
+          <Package className="h-3.5 w-3.5" /> Pedidos
+        </button>
+        <button
+          onClick={() => setVista('clientes')}
+          className={`flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-semibold transition-all ${
+            vista === 'clientes' ? 'bg-orange-500 text-white' : 'bg-dark-surface text-gray-400 border border-white/10'
+          }`}
+        >
+          <Users className="h-3.5 w-3.5" /> Clientes
         </button>
         <button
           onClick={() => setVista('mapa')}
-          className={`flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all ${
+          className={`flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-semibold transition-all ${
             vista === 'mapa' ? 'bg-orange-500 text-white' : 'bg-dark-surface text-gray-400 border border-white/10'
           }`}
         >
-          <Map className="h-4 w-4" /> Mapa
+          <Map className="h-3.5 w-3.5" /> Mapa
         </button>
       </div>
 
@@ -137,15 +151,20 @@ export function EntregadorLayout({ entregador, onLogout }: EntregadorLayoutProps
             <p className="text-gray-400 font-medium">Sin pedidos hoy</p>
             <p className="text-xs text-gray-600 mt-1">Los pedidos aparecen cuando los asesores los registran</p>
           </div>
-        ) : vista === 'lista' ? (
+        ) : vista === 'pedidos' ? (
           <ListaPedidos
             porAsesor={data.por_asesor}
             expandido={expandido}
             setExpandido={setExpandido}
           />
+        ) : vista === 'clientes' ? (
+          <ListaClientes
+            porAsesor={dataClientes?.por_asesor ?? []}
+            isLoading={loadingClientes}
+          />
         ) : (
           <MapaEntregador
-            porAsesor={data.por_asesor}
+            porAsesor={dataClientes?.por_asesor ?? []}
             pedidoSel={pedidoSel}
             setPedidoSel={setPedidoSel}
           />
@@ -229,6 +248,156 @@ function ListaPedidos({ porAsesor, expandido, setExpandido }: any) {
                     >
                       <Phone className="h-3.5 w-3.5" /> {p.telefono}
                     </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+
+// ── Lista de todos los clientes por asesor y ruta ───────────────────────────
+function ListaClientes({ porAsesor, isLoading }: any) {
+  const [expandidoAsesor, setExpandidoAsesor] = useState<string | null>(null)
+  const [expandidoRuta, setExpandidoRuta]     = useState<string | null>(null)
+  const [buscar, setBuscar]                   = useState("")
+
+  if (isLoading) return (
+    <div className="flex items-center justify-center py-16">
+      <Loader2 className="h-8 w-8 animate-spin text-orange-400" />
+    </div>
+  )
+
+  if (!porAsesor?.length) return (
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <Users className="h-12 w-12 text-gray-600 mb-3" />
+      <p className="text-gray-400">Sin clientes disponibles</p>
+    </div>
+  )
+
+  // Filtro de búsqueda
+  const filtrados = buscar.trim().length >= 2
+    ? porAsesor.map((a: any) => ({
+        ...a,
+        rutas: a.rutas.map((r: any) => ({
+          ...r,
+          clientes: r.clientes.filter((c: any) =>
+            c.nombre.toLowerCase().includes(buscar.toLowerCase()) ||
+            c.direccion?.toLowerCase().includes(buscar.toLowerCase())
+          )
+        })).filter((r: any) => r.clientes.length > 0)
+      })).filter((a: any) => a.rutas.length > 0)
+    : porAsesor
+
+  return (
+    <div className="space-y-3">
+      {/* Buscador */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+        <input
+          type="text"
+          value={buscar}
+          onChange={e => setBuscar(e.target.value)}
+          placeholder="Buscar cliente o dirección..."
+          className="w-full rounded-xl border border-white/10 bg-dark-surface pl-10 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+        />
+        {buscar && (
+          <button onClick={() => setBuscar("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {filtrados.map((grupo: any) => (
+        <div key={grupo.asesor} className="rounded-xl bg-dark-surface border border-white/10 overflow-hidden">
+          {/* Cabecera asesor */}
+          <button
+            onClick={() => setExpandidoAsesor(expandidoAsesor === grupo.asesor ? null : grupo.asesor)}
+            className="flex w-full items-center gap-3 p-4 text-left"
+          >
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy-accent/20 text-xs font-bold text-navy-accent">
+              {getInitials(grupo.asesor)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-white">{grupo.asesor}</p>
+              <p className="text-xs text-gray-500">
+                {grupo.total} clientes · {grupo.rutas.length} rutas
+                {grupo.visitados > 0 && ` · ${grupo.visitados} visitados hoy`}
+              </p>
+            </div>
+            {expandidoAsesor === grupo.asesor
+              ? <ChevronUp className="h-4 w-4 text-gray-500 shrink-0" />
+              : <ChevronDown className="h-4 w-4 text-gray-500 shrink-0" />
+            }
+          </button>
+
+          {/* Rutas del asesor */}
+          {expandidoAsesor === grupo.asesor && (
+            <div className="border-t border-white/10">
+              {grupo.rutas.map((r: any) => (
+                <div key={r.ruta} className="border-b border-white/5 last:border-0">
+                  {/* Cabecera ruta */}
+                  <button
+                    onClick={() => setExpandidoRuta(expandidoRuta === `${grupo.asesor}-${r.ruta}` ? null : `${grupo.asesor}-${r.ruta}`)}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left bg-dark-bg/50"
+                  >
+                    <span className="shrink-0 rounded bg-orange-500/20 px-2 py-0.5 text-[10px] font-bold font-mono text-orange-400">
+                      Ruta {r.ruta}
+                    </span>
+                    <span className="flex-1 text-xs text-gray-400">{r.total} clientes</span>
+                    {expandidoRuta === `${grupo.asesor}-${r.ruta}`
+                      ? <ChevronUp className="h-3.5 w-3.5 text-gray-600" />
+                      : <ChevronDown className="h-3.5 w-3.5 text-gray-600" />
+                    }
+                  </button>
+
+                  {/* Clientes de la ruta */}
+                  {expandidoRuta === `${grupo.asesor}-${r.ruta}` && (
+                    <div className="divide-y divide-white/5">
+                      {r.clientes.map((c: any) => (
+                        <div key={c.id} className="px-4 py-3 space-y-2">
+                          <div className="flex items-start gap-2">
+                            <div className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
+                              c.hubo_pedido ? 'bg-success' :
+                              c.visitado ? 'bg-navy-accent' : 'bg-gray-600'
+                            }`} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-white truncate">{c.nombre}</p>
+                              <p className="text-xs text-gray-500 truncate">{c.direccion || 'Sin dirección'}</p>
+                              {c.hubo_pedido && (
+                                <p className="text-xs text-success font-semibold">{c.valor_formato}</p>
+                              )}
+                            </div>
+                          </div>
+                          {c.lat && c.lng && (
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lng}&travelmode=driving`, '_blank')}
+                                className="flex items-center justify-center gap-1.5 rounded-lg bg-[#4285F4]/15 border border-[#4285F4]/30 py-1.5 text-xs font-semibold text-[#4285F4]"
+                              >
+                                <Navigation className="h-3 w-3" /> Maps
+                              </button>
+                              <button
+                                onClick={() => window.open(`https://waze.com/ul?ll=${c.lat},${c.lng}&navigate=yes`, '_blank')}
+                                className="flex items-center justify-center gap-1.5 rounded-lg bg-[#33CCFF]/10 border border-[#33CCFF]/30 py-1.5 text-xs font-semibold text-[#33CCFF]"
+                              >
+                                <Navigation className="h-3 w-3" /> Waze
+                              </button>
+                            </div>
+                          )}
+                          {c.telefono && (
+                            <a href={`tel:${c.telefono}`}
+                              className="flex items-center justify-center gap-1.5 rounded-lg bg-success/10 border border-success/20 py-1.5 text-xs font-semibold text-success w-full">
+                              <Phone className="h-3 w-3" /> {c.telefono}
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               ))}
@@ -326,9 +495,11 @@ function MapaEntregador({ porAsesor, pedidoSel, setPedidoSel }: any) {
 
     porAsesor.forEach((grupo: any, gi: number) => {
       const color = colores[gi % colores.length]
-      grupo.pedidos.forEach((p: any) => {
+      const todosClientes = grupo.rutas?.flatMap((r: any) => r.clientes) ?? grupo.pedidos ?? []
+      todosClientes.forEach((p: any) => {
         if (!p.lat || !p.lng) return
-        const initials = getInitials(p.cliente_nombre)
+        const nombre = p.cliente_nombre || p.nombre || ''
+        const initials = getInitials(nombre)
         const icon = L.divIcon({
           className: '',
           html: `<div style="background:${color};border:2px solid white;border-radius:50% 50% 50% 0;width:32px;height:32px;transform:rotate(-45deg);box-shadow:0 2px 6px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;">
@@ -337,7 +508,7 @@ function MapaEntregador({ porAsesor, pedidoSel, setPedidoSel }: any) {
           iconSize: [32, 32], iconAnchor: [16, 32], popupAnchor: [0, -32],
         })
         const marker = L.marker([p.lat, p.lng], { icon }).addTo(map)
-        marker.on('click', () => setPedidoSel({ ...p, asesor: grupo.asesor, color }))
+        marker.on('click', () => setPedidoSel({ ...p, cliente_nombre: p.cliente_nombre || p.nombre, asesor: grupo.asesor, color }))
         markersRef.current.push(marker)
       })
     })
