@@ -1,8 +1,8 @@
 "use client"
 
 // ============================================================================
-// components/gerencia/gerencia-layout.tsx — COMPLETO CON ADMIN INTEGRADO
-// Pestañas: Dashboard · Equipo · Zonas · Asesores (admin) · Importar · Compartir
+// components/gerencia/gerencia-layout.tsx — COMPLETO CON INFORMES INTEGRADO
+// Pestañas: Dashboard · Equipo · Zonas · Asesores · Informes · Importar · Compartir
 // ============================================================================
 
 import { useState, useEffect } from "react"
@@ -12,13 +12,20 @@ import {
   ChevronLeft, ChevronRight, Loader2, AlertTriangle,
   Check, TrendingUp, DollarSign, Search, X,
   UserPlus, RefreshCw, Edit2, UserX, ArrowRight,
-  MapPin, CheckCircle, AlertCircle, FileUp, Share2
+  MapPin, CheckCircle, AlertCircle, FileUp, Share2,
+  ChevronUp, ChevronDown, Download
 } from "lucide-react"
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
 function fechaColombia() {
   return new Date().toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
+}
+function hoy() {
+  return fechaColombia()
+}
+function inicioMes() {
+  return hoy().slice(0, 7) + '-01'
 }
 function getRuta(nombre: string) {
   if (!nombre) return '—'
@@ -30,8 +37,11 @@ function getNombreSinRuta(nombre: string) {
   const partes = nombre.split(' ')
   return partes.length > 1 ? partes.slice(1).join(' ') : nombre
 }
+function cop(n: number): string {
+  return '$' + Math.round(n).toLocaleString('es-CO')
+}
 
-type Tab = "dashboard" | "equipo" | "zonas" | "asesores" | "importar" | "compartir"
+type Tab = "dashboard" | "equipo" | "zonas" | "asesores" | "informes" | "importar" | "compartir"
 
 interface GerenciaLayoutProps { onBack: () => void }
 
@@ -45,6 +55,7 @@ export function GerenciaLayout({ onBack }: GerenciaLayoutProps) {
     { id: "equipo"    as Tab, label: "Equipo",      icon: Users      },
     { id: "zonas"     as Tab, label: "Zonas",       icon: Map        },
     { id: "asesores"  as Tab, label: "Asesores",    icon: Settings   },
+    { id: "informes"  as Tab, label: "Informes",    icon: TrendingUp },
     { id: "importar"  as Tab, label: "Importar",    icon: Upload     },
     { id: "compartir" as Tab, label: "Compartir",   icon: Share2     },
   ]
@@ -91,6 +102,7 @@ export function GerenciaLayout({ onBack }: GerenciaLayoutProps) {
         {tab === "equipo"    && <TabEquipo    fecha={fecha} />}
         {tab === "zonas"     && <TabZonas     fecha={fecha} />}
         {tab === "asesores"  && <TabAsesores  />}
+        {tab === "informes"  && <TabInformes  />}
         {tab === "importar"  && <TabImportar  />}
         {tab === "compartir" && <TabCompartir />}
       </div>
@@ -113,7 +125,6 @@ function TabDashboard({ fecha }: { fecha: string }) {
 
   return (
     <div className="p-4 space-y-4">
-      {/* KPIs */}
       <div className="grid grid-cols-2 gap-3">
         <KpiCard label="Visitas Hoy"       value={totales.visitas}          sub={`${totales.validadas} validadas`}      color="text-navy-accent" />
         <KpiCard label="Cumplimiento"      value={`${totales.cumplimiento}%`} sub={`${totales.clientes_asignados} asignados`} color={totales.cumplimiento >= 80 ? "text-success" : totales.cumplimiento >= 60 ? "text-warning" : "text-danger"} />
@@ -121,7 +132,6 @@ function TabDashboard({ fecha }: { fecha: string }) {
         <KpiCard label="Alertas GPS"       value={totales.sospechosas}      sub="visitas sospechosas"                   color={totales.sospechosas > 0 ? "text-warning" : "text-success"} />
       </div>
 
-      {/* Ventas */}
       <div className="rounded-xl bg-dark-surface border border-white/10 p-4">
         <div className="flex items-center gap-2 mb-3">
           <DollarSign className="h-4 w-4 text-success" />
@@ -139,7 +149,6 @@ function TabDashboard({ fecha }: { fecha: string }) {
         </div>
       </div>
 
-      {/* Top 3 */}
       <div className="rounded-xl bg-dark-surface border border-white/10 p-4">
         <p className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
           <TrendingUp className="h-4 w-4 text-navy-accent" /> Top asesores hoy
@@ -158,7 +167,6 @@ function TabDashboard({ fecha }: { fecha: string }) {
         </div>
       </div>
 
-      {/* Zonas con menor cumplimiento */}
       {bottom3.length > 0 && (
         <div className="rounded-xl bg-dark-surface border border-white/10 p-4">
           <p className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
@@ -179,7 +187,6 @@ function TabDashboard({ fecha }: { fecha: string }) {
         </div>
       )}
 
-      {/* Alertas recientes */}
       {alertas?.length > 0 && (
         <div className="rounded-xl bg-dark-surface border border-warning/20 p-4">
           <p className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
@@ -248,7 +255,6 @@ function TabEquipo({ fecha }: { fecha: string }) {
   )
 }
 
-// ── Perfil asesor ────────────────────────────────────────────────────────────
 function PerfilAsesor({ asesor, fecha, onVolver }: { asesor: any; fecha: string; onVolver: () => void }) {
   const { data } = useSWR(`/api/resumen-dia?asesor_id=${asesor.id}&fecha=${fecha}`, fetcher)
   const m = data?.metricas
@@ -268,10 +274,10 @@ function PerfilAsesor({ asesor, fecha, onVolver }: { asesor: any; fecha: string;
       {!m ? <LoadingSpinner /> : (
         <>
           <div className="grid grid-cols-2 gap-3">
-            <KpiCard label="Visitas"     value={`${m.visitas?.realizadas ?? 0}/${m.visitas?.total ?? 0}`} sub="hoy" color="text-white" />
+            <KpiCard label="Visitas"      value={`${m.visitas?.realizadas ?? 0}/${m.visitas?.total ?? 0}`} sub="hoy" color="text-white" />
             <KpiCard label="Cumplimiento" value={`${m.visitas?.cumplimiento ?? 0}%`} sub="" color={m.visitas?.cumplimiento >= 80 ? 'text-success' : 'text-warning'} />
-            <KpiCard label="Validadas"   value={m.visitas?.validadas ?? 0}    sub="" color="text-success" />
-            <KpiCard label="Sospechosas" value={m.visitas?.sospechosas ?? 0}  sub="" color="text-warning" />
+            <KpiCard label="Validadas"    value={m.visitas?.validadas ?? 0}   sub="" color="text-success" />
+            <KpiCard label="Sospechosas"  value={m.visitas?.sospechosas ?? 0} sub="" color="text-warning" />
           </div>
           {m.pedidos?.efectivos > 0 && (
             <div className="rounded-xl bg-dark-surface border border-white/10 p-4">
@@ -345,30 +351,21 @@ function TabZonas({ fecha }: { fecha: string }) {
 // ============================================================================
 function TabAsesores() {
   const { data, isLoading, mutate } = useSWR('/api/admin/asesores', fetcher)
-  const [asesorSel, setAsesorSel]         = useState<any>(null)
-  const [vista, setVista]                 = useState<"lista" | "clientes" | "editar" | "reasignar">("lista")
-  const [buscar, setBuscar]               = useState("")
+  const [asesorSel, setAsesorSel]   = useState<any>(null)
+  const [vista, setVista]           = useState<"lista" | "clientes" | "editar" | "reasignar">("lista")
+  const [buscar, setBuscar]         = useState("")
 
   const asesores = (data?.asesores || []).filter((a: any) =>
     a.nombre && !a.nombre.match(/^(lunes|martes|mi|sábado|jueves|viernes|domingo)/i)
   )
-
   const filtrados = asesores.filter((a: any) =>
     a.nombre.toLowerCase().includes(buscar.toLowerCase()) ||
     (a.email || '').toLowerCase().includes(buscar.toLowerCase())
   )
 
-  if (vista === "clientes" && asesorSel) {
-    return <VistaClientesAsesor asesor={asesorSel} onVolver={() => { setVista("lista"); setAsesorSel(null) }} />
-  }
-
-  if (vista === "editar" && asesorSel) {
-    return <VistaEditarAsesor asesor={asesorSel} onVolver={() => { setVista("lista"); setAsesorSel(null); mutate() }} />
-  }
-
-  if (vista === "reasignar" && asesorSel) {
-    return <VistaReasignar asesor={asesorSel} asesores={asesores} onVolver={() => { setVista("lista"); setAsesorSel(null); mutate() }} />
-  }
+  if (vista === "clientes"  && asesorSel) return <VistaClientesAsesor asesor={asesorSel} onVolver={() => { setVista("lista"); setAsesorSel(null) }} />
+  if (vista === "editar"    && asesorSel) return <VistaEditarAsesor   asesor={asesorSel} onVolver={() => { setVista("lista"); setAsesorSel(null); mutate() }} />
+  if (vista === "reasignar" && asesorSel) return <VistaReasignar      asesor={asesorSel} asesores={asesores} onVolver={() => { setVista("lista"); setAsesorSel(null); mutate() }} />
 
   return (
     <div className="p-4 space-y-3">
@@ -402,22 +399,16 @@ function TabAsesores() {
             </div>
           </div>
           <div className="flex gap-2">
-            <button
-              onClick={() => { setAsesorSel(a); setVista("clientes") }}
-              className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-white/5 border border-white/10 py-2 text-xs text-gray-300 hover:bg-white/10 transition-colors"
-            >
+            <button onClick={() => { setAsesorSel(a); setVista("clientes") }}
+              className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-white/5 border border-white/10 py-2 text-xs text-gray-300 hover:bg-white/10 transition-colors">
               <Users className="h-3.5 w-3.5" />Ver clientes
             </button>
-            <button
-              onClick={() => { setAsesorSel(a); setVista("editar") }}
-              className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-navy-accent/10 border border-navy-accent/20 py-2 text-xs text-navy-accent hover:bg-navy-accent/20 transition-colors"
-            >
+            <button onClick={() => { setAsesorSel(a); setVista("editar") }}
+              className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-navy-accent/10 border border-navy-accent/20 py-2 text-xs text-navy-accent hover:bg-navy-accent/20 transition-colors">
               <Edit2 className="h-3.5 w-3.5" />Editar
             </button>
-            <button
-              onClick={() => { setAsesorSel(a); setVista("reasignar") }}
-              className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-warning/10 border border-warning/20 py-2 text-xs text-warning hover:bg-warning/20 transition-colors"
-            >
+            <button onClick={() => { setAsesorSel(a); setVista("reasignar") }}
+              className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-warning/10 border border-warning/20 py-2 text-xs text-warning hover:bg-warning/20 transition-colors">
               <RefreshCw className="h-3.5 w-3.5" />Reasignar
             </button>
           </div>
@@ -427,13 +418,10 @@ function TabAsesores() {
   )
 }
 
-// ── Vista clientes de asesor ─────────────────────────────────────────────────
 function VistaClientesAsesor({ asesor, onVolver }: { asesor: any; onVolver: () => void }) {
   const [buscar, setBuscar]         = useState("")
   const [filtroRuta, setFiltroRuta] = useState("")
-  const { data, isLoading } = useSWR(
-    `/api/admin/clientes?asesor_id=${asesor.id}&limit=10000`, fetcher
-  )
+  const { data, isLoading } = useSWR(`/api/admin/clientes?asesor_id=${asesor.id}&limit=10000`, fetcher)
 
   const todos = data?.clientes || []
   const rutasUnicas = Array.from(new Set(todos.map((c: any) => getRuta(c.nombre))))
@@ -457,7 +445,6 @@ function VistaClientesAsesor({ asesor, onVolver }: { asesor: any; onVolver: () =
           <p className="text-xs text-gray-500">{isLoading ? 'Cargando...' : `${filtrados.length} de ${todos.length} clientes`}</p>
         </div>
       </div>
-
       <div className="flex gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
@@ -468,7 +455,6 @@ function VistaClientesAsesor({ asesor, onVolver }: { asesor: any; onVolver: () =
           {(rutasUnicas as string[]).map(r => <option key={r} value={r}>Ruta {r}</option>)}
         </select>
       </div>
-
       {isLoading ? <LoadingSpinner /> : (
         <div className="space-y-1.5">
           {filtrados.map((c: any) => (
@@ -487,7 +473,6 @@ function VistaClientesAsesor({ asesor, onVolver }: { asesor: any; onVolver: () =
   )
 }
 
-// ── Editar asesor ────────────────────────────────────────────────────────────
 function VistaEditarAsesor({ asesor, onVolver }: { asesor: any; onVolver: () => void }) {
   const [nombre, setNombre]   = useState(asesor.nombre)
   const [zona, setZona]       = useState(asesor.zona || "")
@@ -498,8 +483,7 @@ function VistaEditarAsesor({ asesor, onVolver }: { asesor: any; onVolver: () => 
 
   const handleGuardar = async () => {
     if (!nombre.trim()) { setError("El nombre es obligatorio"); return }
-    setLoading(true)
-    setError("")
+    setLoading(true); setError("")
     try {
       const res = await fetch('/api/admin/asesores', {
         method: 'PATCH',
@@ -524,7 +508,6 @@ function VistaEditarAsesor({ asesor, onVolver }: { asesor: any; onVolver: () => 
         </button>
         <h2 className="text-base font-bold text-white">Editar asesor</h2>
       </div>
-
       <div className="rounded-xl bg-dark-surface border border-white/10 p-4 space-y-3">
         <div>
           <label className="block text-xs text-gray-400 mb-1">Nombre *</label>
@@ -544,18 +527,13 @@ function VistaEditarAsesor({ asesor, onVolver }: { asesor: any; onVolver: () => 
             <p className="text-sm font-medium text-white">Estado de la cuenta</p>
             <p className="text-xs text-gray-500">{activo ? "El asesor puede iniciar sesión" : "El asesor no puede ingresar"}</p>
           </div>
-          <button
-            onClick={() => setActivo(!activo)}
-            className={`relative h-6 w-11 rounded-full transition-colors ${activo ? 'bg-success' : 'bg-gray-600'}`}
-          >
+          <button onClick={() => setActivo(!activo)} className={`relative h-6 w-11 rounded-full transition-colors ${activo ? 'bg-success' : 'bg-gray-600'}`}>
             <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${activo ? 'translate-x-5' : 'translate-x-0.5'}`} />
           </button>
         </div>
       </div>
-
       {error && <div className="flex items-center gap-2 rounded-xl bg-danger/10 border border-danger/20 px-4 py-3"><AlertCircle className="h-4 w-4 text-danger" /><p className="text-sm text-danger">{error}</p></div>}
       {exito && <div className="flex items-center gap-2 rounded-xl bg-success/10 border border-success/20 px-4 py-3"><CheckCircle className="h-4 w-4 text-success" /><p className="text-sm text-success">Cambios guardados correctamente</p></div>}
-
       <button onClick={handleGuardar} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-xl bg-navy-accent py-3 font-semibold text-white disabled:opacity-50 transition-all active:scale-[0.97]">
         {loading ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Guardando...</span></> : <><Check className="h-4 w-4" /><span>Guardar cambios</span></>}
       </button>
@@ -563,14 +541,19 @@ function VistaEditarAsesor({ asesor, onVolver }: { asesor: any; onVolver: () => 
   )
 }
 
-// ── Reasignar clientes ───────────────────────────────────────────────────────
 function VistaReasignar({ asesor, asesores, onVolver }: { asesor: any; asesores: any[]; onVolver: () => void }) {
-  const [todos, setTodos] = useState<any[]>([])
+  const [todos, setTodos]         = useState<any[]>([])
+  const [rutasSel, setRutasSel]   = useState<string[]>([])
+  const [todasRutas, setTodasRutas] = useState(false)
+  const [asesorDest, setAsesorDest] = useState("")
+  const [desactivar, setDesactivar] = useState(false)
+  const [loading, setLoading]     = useState(false)
+  const [resultado, setResultado] = useState<any>(null)
+  const [error, setError]         = useState("")
+
   useEffect(() => {
     async function cargarTodos() {
-      const BATCH = 1000
-      let offset = 0
-      let acumulados: any[] = []
+      const BATCH = 1000; let offset = 0; let acumulados: any[] = []
       while (true) {
         const res = await fetch(`/api/admin/clientes?asesor_id=${asesor.id}&limit=${BATCH}&offset=${offset}`)
         const data = await res.json()
@@ -587,37 +570,18 @@ function VistaReasignar({ asesor, asesores, onVolver }: { asesor: any; asesores:
     .filter((r: any) => r !== '—')
     .sort((a: any, b: any) => (a as string).localeCompare(b as string, undefined, { numeric: true })) as string[]
 
-  const [rutasSel, setRutasSel]       = useState<string[]>([])
-  const [todasRutas, setTodasRutas]   = useState(false)
-  const [asesorDest, setAsesorDest]   = useState("")
-  const [desactivar, setDesactivar]   = useState(false)
-  const [loading, setLoading]         = useState(false)
-  const [resultado, setResultado]     = useState<any>(null)
-  const [error, setError]             = useState("")
-
-  const toggleRuta = (r: string) => {
-    setRutasSel(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r])
-  }
-
-  const clientesAfectados = todasRutas
-    ? todos.length
-    : todos.filter((c: any) => rutasSel.includes(getRuta(c.nombre))).length
+  const toggleRuta = (r: string) => setRutasSel(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r])
+  const clientesAfectados = todasRutas ? todos.length : todos.filter((c: any) => rutasSel.includes(getRuta(c.nombre))).length
 
   const handleReasignar = async () => {
     if (!asesorDest) { setError("Selecciona el asesor destino"); return }
     if (!todasRutas && rutasSel.length === 0) { setError("Selecciona al menos una ruta"); return }
-    setLoading(true)
-    setError("")
+    setLoading(true); setError("")
     try {
       const res = await fetch('/api/admin/reasignar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          asesor_origen_id:  asesor.id,
-          asesor_destino_id: asesorDest,
-          rutas:             todasRutas ? [] : rutasSel,
-          desactivar_origen: todasRutas && desactivar,
-        }),
+        body: JSON.stringify({ asesor_origen_id: asesor.id, asesor_destino_id: asesorDest, rutas: todasRutas ? [] : rutasSel, desactivar_origen: todasRutas && desactivar }),
       })
       const d = await res.json()
       if (!res.ok) throw new Error(d.error)
@@ -654,14 +618,10 @@ function VistaReasignar({ asesor, asesores, onVolver }: { asesor: any; asesores:
           <p className="text-xs text-gray-500">{asesor.nombre}</p>
         </div>
       </div>
-
-      {/* Selección de rutas */}
       <div className="rounded-xl bg-dark-surface border border-white/10 p-4 space-y-3">
         <p className="text-sm font-semibold text-white">¿Qué reasignar?</p>
-        <button
-          onClick={() => { setTodasRutas(!todasRutas); setRutasSel([]) }}
-          className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-all ${todasRutas ? 'border-warning bg-warning/10' : 'border-white/10 bg-dark-bg'}`}
-        >
+        <button onClick={() => { setTodasRutas(!todasRutas); setRutasSel([]) }}
+          className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-all ${todasRutas ? 'border-warning bg-warning/10' : 'border-white/10 bg-dark-bg'}`}>
           <div className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${todasRutas ? 'border-warning bg-warning' : 'border-gray-500'}`}>
             {todasRutas && <div className="h-2 w-2 rounded-full bg-white" />}
           </div>
@@ -670,7 +630,6 @@ function VistaReasignar({ asesor, asesores, onVolver }: { asesor: any; asesores:
             <p className="text-xs text-gray-400">Reasigna el 100% de los clientes</p>
           </div>
         </button>
-
         {!todasRutas && (
           <div className="space-y-2">
             <p className="text-xs text-gray-500">O selecciona rutas específicas:</p>
@@ -689,28 +648,19 @@ function VistaReasignar({ asesor, asesores, onVolver }: { asesor: any; asesores:
           </div>
         )}
       </div>
-
-      {/* Asesor destino */}
       <div className="rounded-xl bg-dark-surface border border-white/10 p-4 space-y-2">
         <p className="text-sm font-semibold text-white">Asignar a</p>
-        <select
-          value={asesorDest}
-          onChange={e => setAsesorDest(e.target.value)}
-          className="w-full rounded-xl border border-white/10 bg-dark-bg px-4 py-2.5 text-sm text-white focus:border-navy-accent focus:outline-none"
-        >
+        <select value={asesorDest} onChange={e => setAsesorDest(e.target.value)}
+          className="w-full rounded-xl border border-white/10 bg-dark-bg px-4 py-2.5 text-sm text-white focus:border-navy-accent focus:outline-none">
           <option value="">Selecciona el asesor destino...</option>
           {asesores.filter((a: any) => a.id !== asesor.id && a.activo).map((a: any) => (
             <option key={a.id} value={a.id}>{a.nombre} ({a.total_clientes} clientes)</option>
           ))}
         </select>
       </div>
-
-      {/* Desactivar origen (solo si todas las rutas) */}
       {todasRutas && (
-        <button
-          onClick={() => setDesactivar(!desactivar)}
-          className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-all ${desactivar ? 'border-danger/40 bg-danger/10' : 'border-white/10 bg-dark-surface'}`}
-        >
+        <button onClick={() => setDesactivar(!desactivar)}
+          className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-all ${desactivar ? 'border-danger/40 bg-danger/10' : 'border-white/10 bg-dark-surface'}`}>
           <div className={`h-4 w-4 rounded border-2 flex items-center justify-center ${desactivar ? 'border-danger bg-danger' : 'border-gray-500'}`}>
             {desactivar && <Check className="h-3 w-3 text-white" />}
           </div>
@@ -720,8 +670,6 @@ function VistaReasignar({ asesor, asesores, onVolver }: { asesor: any; asesores:
           </div>
         </button>
       )}
-
-      {/* Resumen */}
       {(todasRutas || rutasSel.length > 0) && asesorDest && (
         <div className="rounded-xl bg-navy-accent/10 border border-navy-accent/30 p-3">
           <p className="text-xs text-gray-400 text-center">
@@ -729,9 +677,7 @@ function VistaReasignar({ asesor, asesores, onVolver }: { asesor: any; asesores:
           </p>
         </div>
       )}
-
       {error && <div className="flex items-center gap-2 rounded-xl bg-danger/10 border border-danger/20 px-4 py-3"><AlertCircle className="h-4 w-4 text-danger" /><p className="text-sm text-danger">{error}</p></div>}
-
       <button onClick={handleReasignar} disabled={loading || !asesorDest || (!todasRutas && rutasSel.length === 0)}
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-warning py-3 font-bold text-dark-bg transition-all active:scale-[0.97] disabled:opacity-40">
         {loading ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Reasignando...</span></> : <><ArrowRight className="h-4 w-4" /><span>CONFIRMAR REASIGNACIÓN</span></>}
@@ -741,16 +687,357 @@ function VistaReasignar({ asesor, asesores, onVolver }: { asesor: any; asesores:
 }
 
 // ============================================================================
+// TAB: INFORMES
+// ============================================================================
+function TabInformes() {
+  const [fechaInicio, setFechaInicio] = useState(inicioMes())
+  const [fechaFin,    setFechaFin]    = useState(hoy())
+  const [asesorId,    setAsesorId]    = useState("")
+  const [innerTab,    setInnerTab]    = useState<"resumen" | "visitados" | "no_visitados">("resumen")
+  const [sortCol,     setSortCol]     = useState("")
+  const [sortDir,     setSortDir]     = useState<"asc" | "desc">("desc")
+
+  const { data: asesoresData } = useSWR("/api/admin/asesores", fetcher)
+
+  function buildURL(tipo: string) {
+    const p = new URLSearchParams({ tipo, fecha_inicio: fechaInicio, fecha_fin: fechaFin })
+    if (asesorId) p.append("asesor_id", asesorId)
+    return `/api/admin/informes?${p.toString()}`
+  }
+
+  const { data: resumenData,   isLoading: loadR, mutate: refR } = useSWR(buildURL("resumen"),            fetcher)
+  const { data: visitadosData, isLoading: loadV, mutate: refV } = useSWR(buildURL("clientes_visitados"), fetcher)
+  const { data: noVisitData,   isLoading: loadN, mutate: refN } = useSWR(buildURL("no_visitados"),       fetcher)
+
+  const resumen     = (resumenData?.data   ?? []) as any[]
+  const visitados   = (visitadosData?.data ?? []) as any[]
+  const noVisitados = (noVisitData?.data   ?? []) as any[]
+
+  const totales = resumen.reduce(
+    (acc, r) => ({ visitas: acc.visitas + r.total_visitas, pedidos: acc.pedidos + r.pedidos, vendido: acc.vendido + r.total_vendido, clientes: acc.clientes + r.clientes_unicos }),
+    { visitas: 0, pedidos: 0, vendido: 0, clientes: 0 }
+  )
+  const convGlobal = totales.visitas > 0 ? Math.round((totales.pedidos / totales.visitas) * 100) : 0
+
+  function sorted(arr: any[]) {
+    if (!sortCol) return arr
+    return [...arr].sort((a, b) => {
+      const va = a[sortCol] ?? 0, vb = b[sortCol] ?? 0
+      if (typeof va === "string") return sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va)
+      return sortDir === "asc" ? va - vb : vb - va
+    })
+  }
+  function toggleSort(col: string) {
+    if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc")
+    else { setSortCol(col); setSortDir("desc") }
+  }
+  function SortIcon({ col }: { col: string }) {
+    if (sortCol !== col) return <ChevronDown className="h-2.5 w-2.5 inline ml-0.5 opacity-30" />
+    return sortDir === "asc" ? <ChevronUp className="h-2.5 w-2.5 inline ml-0.5 text-navy-accent" /> : <ChevronDown className="h-2.5 w-2.5 inline ml-0.5 text-navy-accent" />
+  }
+
+  function setRango(r: "hoy" | "semana" | "mes") {
+    const h = hoy()
+    if (r === "hoy") { setFechaInicio(h); setFechaFin(h) }
+    else if (r === "mes") { setFechaInicio(h.slice(0, 7) + "-01"); setFechaFin(h) }
+    else {
+      const d = new Date(); d.setDate(d.getDate() - 6)
+      setFechaInicio(d.toLocaleDateString("en-CA", { timeZone: "America/Bogota" }))
+      setFechaFin(h)
+    }
+  }
+
+  function exportarCSV() {
+    const filas: string[][] = []
+    if (innerTab === "resumen") {
+      filas.push(["Asesor","Zona","Visitas","Clientes únicos","Validadas","Pedidos","Vendido","Conversión"])
+      sorted(resumen).forEach(r => filas.push([r.asesor_nombre, r.zona, String(r.total_visitas), String(r.clientes_unicos), String(r.visitas_validadas), String(r.pedidos), String(r.total_vendido), Math.round(r.tasa_conversion) + "%"]))
+    } else if (innerTab === "visitados") {
+      filas.push(["Código","Cliente","Asesor","Zona","Visitas","Con pedido","Valor total","Última visita","Estado"])
+      sorted(visitados).forEach(c => filas.push([c.codigo, c.cliente_nombre, c.asesor_nombre, c.zona, String(c.veces_visitado), String(c.veces_con_pedido), String(c.valor_total), c.ultima_visita, c.estado]))
+    } else {
+      filas.push(["Código","Cliente","Asesor","Zona","Última visita","Días sin visita"])
+      sorted(noVisitados).forEach(c => filas.push([c.codigo, c.cliente_nombre, c.asesor_nombre, c.zona, c.ultima_visita_historica ?? "Nunca", c.dias_sin_visita !== null ? String(c.dias_sin_visita) : "N/A"]))
+    }
+    const csv = filas.map(f => f.map(v => `"${v}"`).join(",")).join("\n")
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a"); a.href = url
+    a.download = `informe_${innerTab}_${fechaInicio}_${fechaFin}.csv`
+    a.click(); URL.revokeObjectURL(url)
+  }
+
+  const isLoading = loadR || loadV || loadN
+
+  return (
+    <div className="p-4 space-y-3">
+
+      {/* Filtros */}
+      <div className="rounded-xl bg-dark-surface border border-white/10 p-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[10px] text-gray-500 mb-1">Desde</label>
+            <input type="date" value={fechaInicio} onChange={e => setFechaInicio(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-dark-bg px-3 py-2 text-xs text-white focus:border-navy-accent focus:outline-none" />
+          </div>
+          <div>
+            <label className="block text-[10px] text-gray-500 mb-1">Hasta</label>
+            <input type="date" value={fechaFin} onChange={e => setFechaFin(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-dark-bg px-3 py-2 text-xs text-white focus:border-navy-accent focus:outline-none" />
+          </div>
+          <div className="col-span-2">
+            <label className="block text-[10px] text-gray-500 mb-1">Asesor</label>
+            <select value={asesorId} onChange={e => { setAsesorId(e.target.value); setSortCol("") }}
+              className="w-full rounded-xl border border-white/10 bg-dark-bg px-3 py-2 text-xs text-white focus:border-navy-accent focus:outline-none">
+              <option value="">Todos los asesores</option>
+              {asesoresData?.asesores?.map((a: any) => (
+                <option key={a.id} value={a.id}>{a.nombre}</option>
+              ))}
+            </select>
+          </div>
+          <div className="col-span-2">
+            <label className="block text-[10px] text-gray-500 mb-1.5">Periodo rápido</label>
+            <div className="flex gap-2">
+              {(["hoy", "semana", "mes"] as const).map(r => (
+                <button key={r} onClick={() => setRango(r)}
+                  className="flex-1 rounded-xl border border-white/10 bg-dark-bg py-2 text-xs text-gray-400 hover:text-white hover:border-navy-accent/40 transition-colors">
+                  {r === "hoy" ? "Hoy" : r === "semana" ? "Semana" : "Este mes"}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 gap-2.5">
+        <KpiCard label="Total visitas"   value={totales.visitas.toLocaleString("es-CO")}  color="text-white" />
+        <KpiCard label="Clientes únicos" value={totales.clientes.toLocaleString("es-CO")} color="text-navy-accent" />
+        <KpiCard label="Pedidos"         value={totales.pedidos.toLocaleString("es-CO")}  color="text-success" sub={`Conversión ${convGlobal}%`} />
+        <KpiCard label="Ventas totales"  value={cop(totales.vendido)}                     color="text-success" />
+      </div>
+
+      {/* Panel con inner tabs */}
+      <div className="rounded-xl bg-dark-surface border border-white/10 overflow-hidden">
+
+        {/* Header tabs + acciones */}
+        <div className="flex items-center justify-between border-b border-white/10">
+          <div className="flex overflow-x-auto">
+            {([
+              { id: "resumen"      as const, icon: TrendingUp,    label: "Por asesor" },
+              { id: "visitados"    as const, icon: Users,         label: "Visitados"  },
+              { id: "no_visitados" as const, icon: AlertTriangle, label: `Sin visitar (${noVisitados.length})` },
+            ]).map(({ id, icon: Icon, label }) => (
+              <button key={id} onClick={() => { setInnerTab(id); setSortCol("") }}
+                className={`flex shrink-0 items-center gap-1.5 px-3 py-3 text-xs font-medium border-b-2 transition-colors ${
+                  innerTab === id ? "border-navy-accent text-navy-accent" : "border-transparent text-gray-500 hover:text-gray-300"
+                }`}>
+                <Icon className="h-3 w-3" />{label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1 pr-3 shrink-0">
+            <button onClick={() => { refR(); refV(); refN() }} className="p-2 text-gray-500 hover:text-white transition-colors" title="Actualizar">
+              <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
+            </button>
+            <button onClick={exportarCSV} className="p-2 text-gray-500 hover:text-navy-accent transition-colors" title="Exportar CSV">
+              <Download className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Tabla: Por asesor */}
+        {innerTab === "resumen" && (
+          <div className="overflow-x-auto">
+            {loadR ? <LoadingSpinner /> : (
+              <table className="w-full text-xs">
+                <thead className="bg-white/[0.02]">
+                  <tr>
+                    {[
+                      { col: "asesor_nombre",   label: "Asesor"       },
+                      { col: "zona",            label: "Zona"         },
+                      { col: "total_visitas",   label: "Visitas"      },
+                      { col: "clientes_unicos", label: "Clientes"     },
+                      { col: "pedidos",         label: "Pedidos"      },
+                      { col: "tasa_conversion", label: "Conversión"   },
+                      { col: "total_vendido",   label: "Vendido"      },
+                      { col: "promedio_pedido", label: "Prom. pedido" },
+                    ].map(({ col, label }) => (
+                      <th key={col} onClick={() => toggleSort(col)}
+                        className="px-3 py-2.5 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wide cursor-pointer hover:text-gray-300 whitespace-nowrap select-none">
+                        {label}<SortIcon col={col} />
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.04]">
+                  {sorted(resumen).map(r => (
+                    <tr key={r.asesor_id} className="hover:bg-white/[0.02] transition-colors">
+                      <td className="px-3 py-2.5 text-white font-medium">{r.asesor_nombre}</td>
+                      <td className="px-3 py-2.5 text-gray-500">{r.zona || "—"}</td>
+                      <td className="px-3 py-2.5 text-white">{r.total_visitas}</td>
+                      <td className="px-3 py-2.5 text-navy-accent">{r.clientes_unicos}</td>
+                      <td className="px-3 py-2.5 text-white">{r.pedidos}</td>
+                      <td className="px-3 py-2.5">
+                        <span className={`font-medium ${r.tasa_conversion >= 50 ? "text-success" : r.tasa_conversion >= 25 ? "text-warning" : "text-danger"}`}>
+                          {Math.round(r.tasa_conversion)}%
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-success font-medium">{cop(r.total_vendido)}</td>
+                      <td className="px-3 py-2.5 text-gray-400">{cop(r.promedio_pedido)}</td>
+                    </tr>
+                  ))}
+                  {resumen.length === 0 && <tr><td colSpan={8} className="px-3 py-8 text-center text-gray-600 text-xs">Sin datos para el periodo</td></tr>}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* Tabla: Clientes visitados */}
+        {innerTab === "visitados" && (
+          <>
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.06] text-xs">
+              <span className="text-gray-500"><span className="text-white font-medium">{visitados.length}</span> visitados</span>
+              <span className="text-gray-700">·</span>
+              <span className="text-gray-500"><span className="text-success font-medium">{visitados.filter((c: any) => c.estado === "comprador").length}</span> compraron</span>
+              <span className="text-gray-700">·</span>
+              <span className="text-gray-500"><span className="text-warning font-medium">{visitados.filter((c: any) => c.estado !== "comprador").length}</span> sin compra</span>
+            </div>
+            <div className="overflow-x-auto">
+              {loadV ? <LoadingSpinner /> : (
+                <table className="w-full text-xs">
+                  <thead className="bg-white/[0.02]">
+                    <tr>
+                      {[
+                        { col: "codigo",           label: "Código"        },
+                        { col: "cliente_nombre",   label: "Cliente"       },
+                        { col: "asesor_nombre",    label: "Asesor"        },
+                        { col: "veces_visitado",   label: "Visitas"       },
+                        { col: "veces_con_pedido", label: "Con pedido"    },
+                        { col: "valor_total",      label: "Valor total"   },
+                        { col: "ultima_visita",    label: "Última visita" },
+                        { col: "estado",           label: "Estado"        },
+                      ].map(({ col, label }) => (
+                        <th key={col} onClick={() => toggleSort(col)}
+                          className="px-3 py-2.5 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wide cursor-pointer hover:text-gray-300 whitespace-nowrap select-none">
+                          {label}<SortIcon col={col} />
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.04]">
+                    {sorted(visitados).map((c: any) => (
+                      <tr key={c.cliente_id} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="px-3 py-2.5 font-mono text-[10px] text-gray-500">{c.codigo}</td>
+                        <td className="px-3 py-2.5">
+                          <p className="text-white font-medium">{c.cliente_nombre}</p>
+                          {c.direccion && <p className="text-[10px] text-gray-600 mt-0.5">{c.direccion}</p>}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <p className="text-gray-300">{c.asesor_nombre}</p>
+                          <p className="text-[10px] text-gray-600">{c.zona}</p>
+                        </td>
+                        <td className="px-3 py-2.5 text-white text-center">{c.veces_visitado}</td>
+                        <td className="px-3 py-2.5 text-center">
+                          <span className={c.veces_con_pedido > 0 ? "text-success font-medium" : "text-gray-600"}>{c.veces_con_pedido}</span>
+                        </td>
+                        <td className="px-3 py-2.5 text-success font-medium">{cop(c.valor_total)}</td>
+                        <td className="px-3 py-2.5 text-gray-500 text-[10px]">{c.ultima_visita}</td>
+                        <td className="px-3 py-2.5">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${c.estado === "comprador" ? "bg-success/15 text-success" : "bg-warning/15 text-warning"}`}>
+                            {c.estado === "comprador" ? "Comprador" : "Sin compra"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {visitados.length === 0 && <tr><td colSpan={8} className="px-3 py-8 text-center text-gray-600 text-xs">Sin datos para el periodo</td></tr>}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Tabla: Sin visitar */}
+        {innerTab === "no_visitados" && (
+          <>
+            {noVisitados.length > 0 && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-danger/5 border-b border-danger/10">
+                <AlertTriangle className="h-3.5 w-3.5 text-danger shrink-0" />
+                <p className="text-xs text-danger/80">
+                  <span className="text-white font-medium">{noVisitados.length}</span> clientes activos sin visita en el periodo. Considera reasignar.
+                </p>
+              </div>
+            )}
+            <div className="overflow-x-auto">
+              {loadN ? <LoadingSpinner /> : (
+                <table className="w-full text-xs">
+                  <thead className="bg-white/[0.02]">
+                    <tr>
+                      {[
+                        { col: "codigo",                  label: "Código"          },
+                        { col: "cliente_nombre",          label: "Cliente"         },
+                        { col: "asesor_nombre",           label: "Asesor"          },
+                        { col: "zona",                    label: "Zona"            },
+                        { col: "ultima_visita_historica", label: "Última visita"   },
+                        { col: "dias_sin_visita",         label: "Días sin visita" },
+                      ].map(({ col, label }) => (
+                        <th key={col} onClick={() => toggleSort(col)}
+                          className="px-3 py-2.5 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wide cursor-pointer hover:text-gray-300 whitespace-nowrap select-none">
+                          {label}<SortIcon col={col} />
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.04]">
+                    {sorted(noVisitados).map((c: any) => {
+                      const dias = c.dias_sin_visita
+                      const colorDias = dias === null ? "text-gray-600" : dias > 30 ? "text-danger" : dias > 14 ? "text-warning" : "text-gray-400"
+                      return (
+                        <tr key={c.cliente_id} className="hover:bg-white/[0.02] transition-colors">
+                          <td className="px-3 py-2.5 font-mono text-[10px] text-gray-500">{c.codigo}</td>
+                          <td className="px-3 py-2.5">
+                            <p className="text-white font-medium">{c.cliente_nombre}</p>
+                            {c.direccion && <p className="text-[10px] text-gray-600 mt-0.5">{c.direccion}</p>}
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-300">{c.asesor_nombre || "—"}</td>
+                          <td className="px-3 py-2.5 text-gray-500">{c.zona || "—"}</td>
+                          <td className="px-3 py-2.5 text-[10px] text-gray-500">
+                            {c.ultima_visita_historica ?? <span className="text-danger">Nunca visitado</span>}
+                          </td>
+                          <td className={`px-3 py-2.5 font-medium ${colorDias}`}>
+                            {dias !== null ? `${dias}d` : "—"}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                    {noVisitados.length === 0 && (
+                      <tr><td colSpan={6} className="px-3 py-8 text-center text-success text-xs">Todos los clientes fueron visitados en el periodo</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </>
+        )}
+
+      </div>
+    </div>
+  )
+}
+
+// ============================================================================
 // TAB: IMPORTAR CSV
 // ============================================================================
 function TabImportar() {
-  const [file, setFile]       = useState<File | null>(null)
-  const [csvText, setCsvText] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const [status, setStatus]   = useState("")
-  const [stats, setStats]     = useState<any>(null)
-  const [error, setError]     = useState("")
+  const [file, setFile]           = useState<File | null>(null)
+  const [csvText, setCsvText]     = useState("")
+  const [loading, setLoading]     = useState(false)
+  const [progress, setProgress]   = useState(0)
+  const [status, setStatus]       = useState("")
+  const [stats, setStats]         = useState<any>(null)
+  const [error, setError]         = useState("")
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
@@ -760,7 +1047,6 @@ function TabImportar() {
   const handleImport = async () => {
     if (!csvText) { setError("Selecciona un archivo primero"); return }
     setLoading(true); setError(""); setProgress(0); setStatus("Iniciando...")
-
     try {
       const parseRes = await fetch('/api/admin/import-csv', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -768,10 +1054,8 @@ function TabImportar() {
       })
       const parseData = await parseRes.json()
       if (!parseRes.ok) throw new Error(parseData.error)
-
       let offset = 0, totalImp = 0, totalOm = 0
       setStatus(`${parseData.total} filas encontradas. Importando...`)
-
       while (true) {
         const batchRes = await fetch('/api/admin/import-csv', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -779,16 +1063,10 @@ function TabImportar() {
         })
         const batchData = await batchRes.json()
         if (!batchRes.ok) throw new Error(batchData.error)
-
         totalImp += batchData.imported; totalOm += batchData.omitted
         setProgress(batchData.progress)
         setStatus(`${batchData.progress}% — Importados: ${totalImp} | Omitidos: ${totalOm}`)
-
-        if (!batchData.hasMore) {
-          setStats({ importados: totalImp, omitidos: totalOm, total: parseData.total })
-          setStatus("✅ Completado")
-          break
-        }
+        if (!batchData.hasMore) { setStats({ importados: totalImp, omitidos: totalOm, total: parseData.total }); setStatus("✅ Completado"); break }
         offset = batchData.offset
       }
       setFile(null); setCsvText("")
@@ -805,7 +1083,6 @@ function TabImportar() {
         <h2 className="text-base font-bold text-white">Importar clientes CSV</h2>
         <p className="text-xs text-gray-500 mt-0.5">Importación por lotes sin timeout</p>
       </div>
-
       <div className={`rounded-xl border-2 border-dashed p-8 text-center transition-colors ${file ? 'border-success/40 bg-success/5' : 'border-white/20 hover:border-navy-accent'}`}>
         <input id="csv-input" type="file" accept=".csv" onChange={handleFile} className="hidden" disabled={loading} />
         {!file ? (
@@ -825,7 +1102,6 @@ function TabImportar() {
           </div>
         )}
       </div>
-
       {loading && (
         <div className="space-y-2">
           <div className="flex justify-between text-xs">
@@ -837,9 +1113,7 @@ function TabImportar() {
           </div>
         </div>
       )}
-
       {error && <div className="flex items-center gap-2 rounded-xl bg-danger/10 border border-danger/20 px-4 py-3"><AlertCircle className="h-4 w-4 text-danger" /><p className="text-sm text-danger">{error}</p></div>}
-
       {stats && (
         <div className="rounded-xl bg-success/10 border border-success/30 p-4">
           <p className="text-sm font-bold text-success mb-3 flex items-center gap-2"><CheckCircle className="h-4 w-4" />Importación completada</p>
@@ -850,7 +1124,6 @@ function TabImportar() {
           </div>
         </div>
       )}
-
       <button onClick={handleImport} disabled={!file || loading}
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-success py-3 font-bold text-dark-bg transition-all active:scale-[0.97] disabled:opacity-40">
         {loading ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Importando...</span></> : <><Upload className="h-4 w-4" /><span>INICIAR IMPORTACIÓN</span></>}
@@ -864,28 +1137,24 @@ function TabImportar() {
 // ============================================================================
 function TabCompartir() {
   const { data, isLoading } = useSWR('/api/admin/asesores', fetcher)
-
   const asesores = (data?.asesores || []).filter((a: any) =>
     a.nombre && !a.nombre.match(/^(lunes|martes|mi|sábado|jueves|viernes|domingo)/i) && a.activo
   )
 
-  const [asesorOrigen, setAsesorOrigen]   = useState("")
-  const [asesorDest, setAsesorDest]       = useState("")
-  const [clientes, setClientes]           = useState<any[]>([])
+  const [asesorOrigen, setAsesorOrigen]       = useState("")
+  const [asesorDest,   setAsesorDest]         = useState("")
+  const [clientes,     setClientes]           = useState<any[]>([])
   const [cargandoClientes, setCargandoClientes] = useState(false)
-  const [rutasSel, setRutasSel]           = useState<string[]>([])
-  const [loading, setLoading]             = useState(false)
-  const [resultado, setResultado]         = useState<any>(null)
-  const [error, setError]                 = useState("")
+  const [rutasSel,     setRutasSel]           = useState<string[]>([])
+  const [loading,      setLoading]            = useState(false)
+  const [resultado,    setResultado]          = useState<any>(null)
+  const [error,        setError]              = useState("")
 
-  // Cargar clientes del asesor origen
   useEffect(() => {
     if (!asesorOrigen) { setClientes([]); setRutasSel([]); return }
     setCargandoClientes(true)
     const cargar = async () => {
-      const BATCH = 1000
-      let offset = 0
-      let acumulados: any[] = []
+      const BATCH = 1000; let offset = 0; let acumulados: any[] = []
       while (true) {
         const res = await fetch(`/api/admin/clientes?asesor_id=${asesorOrigen}&limit=${BATCH}&offset=${offset}`)
         const d = await res.json()
@@ -893,9 +1162,7 @@ function TabCompartir() {
         if (!d?.pagination?.has_more) break
         offset += BATCH
       }
-      setClientes(acumulados)
-      setRutasSel([])
-      setCargandoClientes(false)
+      setClientes(acumulados); setRutasSel([]); setCargandoClientes(false)
     }
     cargar()
   }, [asesorOrigen])
@@ -904,10 +1171,7 @@ function TabCompartir() {
     .filter((r: any) => r !== '—')
     .sort((a: any, b: any) => (a as string).localeCompare(b as string, undefined, { numeric: true })) as string[]
 
-  const toggleRuta = (r: string) => {
-    setRutasSel(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r])
-  }
-
+  const toggleRuta = (r: string) => setRutasSel(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r])
   const clientesAfectados = clientes.filter((c: any) => rutasSel.includes(getRuta(c.nombre))).length
 
   const handleCompartir = async () => {
@@ -915,17 +1179,11 @@ function TabCompartir() {
     if (!asesorDest)   { setError("Selecciona el asesor destino"); return }
     if (asesorOrigen === asesorDest) { setError("El asesor origen y destino no pueden ser el mismo"); return }
     if (rutasSel.length === 0) { setError("Selecciona al menos una ruta"); return }
-    setLoading(true)
-    setError("")
+    setLoading(true); setError("")
     try {
       const res = await fetch('/api/admin/compartir-ruta', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          asesor_origen_id:  asesorOrigen,
-          asesor_destino_id: asesorDest,
-          rutas:             rutasSel,
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ asesor_origen_id: asesorOrigen, asesor_destino_id: asesorDest, rutas: rutasSel }),
       })
       const d = await res.json()
       if (!res.ok) throw new Error(d.error)
@@ -937,10 +1195,7 @@ function TabCompartir() {
     }
   }
 
-  const resetear = () => {
-    setAsesorOrigen(""); setAsesorDest(""); setClientes([])
-    setRutasSel([]); setResultado(null); setError("")
-  }
+  const resetear = () => { setAsesorOrigen(""); setAsesorDest(""); setClientes([]); setRutasSel([]); setResultado(null); setError("") }
 
   if (resultado) {
     return (
@@ -948,14 +1203,10 @@ function TabCompartir() {
         <div className="rounded-xl bg-success/10 border border-success/30 p-6 text-center space-y-2">
           <CheckCircle className="h-12 w-12 text-success mx-auto" />
           <p className="text-lg font-bold text-white">{resultado.compartidos} clientes compartidos</p>
-          <p className="text-sm text-gray-400">
-            <span className="text-white">{resultado.asesor_origen}</span> → <span className="text-white">{resultado.asesor_destino}</span>
-          </p>
+          <p className="text-sm text-gray-400"><span className="text-white">{resultado.asesor_origen}</span> → <span className="text-white">{resultado.asesor_destino}</span></p>
           <p className="text-xs text-gray-500">Los clientes originales no fueron movidos ni modificados</p>
         </div>
-        <button onClick={resetear} className="w-full rounded-xl bg-navy-accent py-3 font-semibold text-white">
-          Compartir otra ruta
-        </button>
+        <button onClick={resetear} className="w-full rounded-xl bg-navy-accent py-3 font-semibold text-white">Compartir otra ruta</button>
       </div>
     )
   }
@@ -966,40 +1217,24 @@ function TabCompartir() {
         <h2 className="text-base font-bold text-white">Compartir ruta</h2>
         <p className="text-xs text-gray-500 mt-0.5">Los clientes se comparten sin mover ni duplicar</p>
       </div>
-
-      {/* Info */}
       <div className="rounded-xl bg-navy-accent/10 border border-navy-accent/20 p-3">
-        <p className="text-xs text-gray-300">
-          Usa esto cuando dos asesores deben cubrir la misma zona el mismo día. El asesor destino verá los clientes en su lista, pero el asesor origen los conserva también.
-        </p>
+        <p className="text-xs text-gray-300">Usa esto cuando dos asesores deben cubrir la misma zona el mismo día. El asesor destino verá los clientes en su lista, pero el asesor origen los conserva también.</p>
       </div>
-
-      {/* Asesor origen */}
       <div className="rounded-xl bg-dark-surface border border-white/10 p-4 space-y-2">
         <p className="text-sm font-semibold text-white">Asesor que tiene la ruta</p>
         {isLoading ? <LoadingSpinner /> : (
-          <select
-            value={asesorOrigen}
-            onChange={e => { setAsesorOrigen(e.target.value); setResultado(null); setError("") }}
-            className="w-full rounded-xl border border-white/10 bg-dark-bg px-4 py-2.5 text-sm text-white focus:border-navy-accent focus:outline-none"
-          >
+          <select value={asesorOrigen} onChange={e => { setAsesorOrigen(e.target.value); setResultado(null); setError("") }}
+            className="w-full rounded-xl border border-white/10 bg-dark-bg px-4 py-2.5 text-sm text-white focus:border-navy-accent focus:outline-none">
             <option value="">Selecciona el asesor origen...</option>
-            {asesores.map((a: any) => (
-              <option key={a.id} value={a.id}>{a.nombre} ({a.total_clientes} clientes)</option>
-            ))}
+            {asesores.map((a: any) => <option key={a.id} value={a.id}>{a.nombre} ({a.total_clientes} clientes)</option>)}
           </select>
         )}
       </div>
-
-      {/* Selección de rutas */}
       {asesorOrigen && (
         <div className="rounded-xl bg-dark-surface border border-white/10 p-4 space-y-3">
           <p className="text-sm font-semibold text-white">Rutas a compartir</p>
           {cargandoClientes ? (
-            <div className="flex items-center gap-2 py-2">
-              <Loader2 className="h-4 w-4 animate-spin text-navy-accent" />
-              <span className="text-xs text-gray-400">Cargando rutas...</span>
-            </div>
+            <div className="flex items-center gap-2 py-2"><Loader2 className="h-4 w-4 animate-spin text-navy-accent" /><span className="text-xs text-gray-400">Cargando rutas...</span></div>
           ) : rutasUnicas.length === 0 ? (
             <p className="text-xs text-gray-500">Este asesor no tiene clientes con ruta asignada</p>
           ) : (
@@ -1018,49 +1253,25 @@ function TabCompartir() {
           )}
         </div>
       )}
-
-      {/* Asesor destino */}
       {asesorOrigen && rutasSel.length > 0 && (
         <div className="rounded-xl bg-dark-surface border border-white/10 p-4 space-y-2">
           <p className="text-sm font-semibold text-white">Compartir con</p>
-          <select
-            value={asesorDest}
-            onChange={e => setAsesorDest(e.target.value)}
-            className="w-full rounded-xl border border-white/10 bg-dark-bg px-4 py-2.5 text-sm text-white focus:border-navy-accent focus:outline-none"
-          >
+          <select value={asesorDest} onChange={e => setAsesorDest(e.target.value)}
+            className="w-full rounded-xl border border-white/10 bg-dark-bg px-4 py-2.5 text-sm text-white focus:border-navy-accent focus:outline-none">
             <option value="">Selecciona el asesor destino...</option>
-            {asesores.filter((a: any) => a.id !== asesorOrigen).map((a: any) => (
-              <option key={a.id} value={a.id}>{a.nombre}</option>
-            ))}
+            {asesores.filter((a: any) => a.id !== asesorOrigen).map((a: any) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
           </select>
         </div>
       )}
-
-      {/* Resumen */}
       {rutasSel.length > 0 && asesorDest && (
         <div className="rounded-xl bg-navy-accent/10 border border-navy-accent/30 p-3">
-          <p className="text-xs text-gray-400 text-center">
-            <span className="text-white font-bold">{clientesAfectados} clientes</span> de las rutas {rutasSel.join(', ')} serán visibles para el asesor destino
-          </p>
+          <p className="text-xs text-gray-400 text-center"><span className="text-white font-bold">{clientesAfectados} clientes</span> de las rutas {rutasSel.join(', ')} serán visibles para el asesor destino</p>
         </div>
       )}
-
-      {error && (
-        <div className="flex items-center gap-2 rounded-xl bg-danger/10 border border-danger/20 px-4 py-3">
-          <AlertCircle className="h-4 w-4 text-danger" />
-          <p className="text-sm text-danger">{error}</p>
-        </div>
-      )}
-
-      <button
-        onClick={handleCompartir}
-        disabled={loading || !asesorOrigen || !asesorDest || rutasSel.length === 0}
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-navy-accent py-3 font-bold text-white transition-all active:scale-[0.97] disabled:opacity-40"
-      >
-        {loading
-          ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Compartiendo...</span></>
-          : <><Share2 className="h-4 w-4" /><span>COMPARTIR RUTA</span></>
-        }
+      {error && <div className="flex items-center gap-2 rounded-xl bg-danger/10 border border-danger/20 px-4 py-3"><AlertCircle className="h-4 w-4 text-danger" /><p className="text-sm text-danger">{error}</p></div>}
+      <button onClick={handleCompartir} disabled={loading || !asesorOrigen || !asesorDest || rutasSel.length === 0}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-navy-accent py-3 font-bold text-white transition-all active:scale-[0.97] disabled:opacity-40">
+        {loading ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Compartiendo...</span></> : <><Share2 className="h-4 w-4" /><span>COMPARTIR RUTA</span></>}
       </button>
     </div>
   )
@@ -1069,7 +1280,7 @@ function TabCompartir() {
 // ============================================================================
 // HELPERS UI
 // ============================================================================
-function KpiCard({ label, value, sub, color }: { label: string; value: any; sub: string; color: string }) {
+function KpiCard({ label, value, sub, color }: { label: string; value: any; sub?: string; color: string }) {
   return (
     <div className="rounded-xl bg-dark-surface border border-white/10 p-4">
       <p className="text-xs text-gray-500 mb-1">{label}</p>
