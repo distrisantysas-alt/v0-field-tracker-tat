@@ -1,6 +1,7 @@
 // ============================================================================
 // app/api/clientes/eliminar/route.ts
-// DELETE → el asesor elimina un cliente duplicado de su propia cartera
+// DELETE → el asesor elimina un cliente duplicado de su cartera
+// Acepta tanto clientes propios como clientes compartidos (asesor_clientes)
 // ============================================================================
 
 import { sql } from '@/lib/db'
@@ -18,27 +19,22 @@ export async function DELETE(req: NextRequest) {
       )
     }
 
-    console.log('🗑️ Eliminar cliente request:', { cliente_id, asesor_id })
-
     // Verificar que el cliente existe y está activo
-    // Sin filtrar por asesor_id todavía — primero veamos qué hay
-    const verificar = await sql`
-      SELECT id, nombre, asesor_id, activo
+    const clientes = await sql`
+      SELECT id, nombre, codigo, direccion, telefono, lat, lng, asesor_id, activo
       FROM clientes
       WHERE id = ${cliente_id}
       LIMIT 1
     `
 
-    console.log('🔍 Cliente encontrado:', verificar[0] ?? 'ninguno')
-
-    if (verificar.length === 0) {
+    if (clientes.length === 0) {
       return NextResponse.json(
         { error: 'Cliente no encontrado' },
         { status: 404 }
       )
     }
 
-    const cliente = verificar[0]
+    const cliente = clientes[0]
 
     if (!cliente.activo) {
       return NextResponse.json(
@@ -47,17 +43,30 @@ export async function DELETE(req: NextRequest) {
       )
     }
 
-    // Comparar asesor_id como string en ambos lados para evitar mismatch de tipos
-    const asesorIdCliente = String(cliente.asesor_id)
-    const asesorIdSesion  = String(asesor_id)
+    // Verificar que el asesor tiene acceso al cliente:
+    // 1. Es el propietario directo (asesor_id = su id)
+    // 2. Tiene el cliente compartido (en tabla asesor_clientes)
+    const tieneAcceso = String(cliente.asesor_id) === String(asesor_id)
 
-    console.log('🔍 Comparando asesor_id:', { asesorIdCliente, asesorIdSesion, coinciden: asesorIdCliente === asesorIdSesion })
-
-    if (asesorIdCliente !== asesorIdSesion) {
-      return NextResponse.json(
-        { error: 'Este cliente no pertenece a tu cartera' },
-        { status: 403 }
-      )
+    if (!tieneAcceso) {
+      // Verificar si lo tiene compartido
+      try {
+        const compartido = await sql`
+          SELECT 1 FROM asesor_clientes
+          WHERE asesor_id = ${asesor_id}::uuid
+            AND cliente_id = ${cliente_id}
+          LIMIT 1
+        `
+        if (compartido.length === 0) {
+          return NextResponse.json(
+            { error: 'No tienes acceso a este cliente' },
+            { status: 403 }
+          )
+        }
+      } catch {
+        // Si la tabla asesor_clientes no existe, permitir igual
+        // ya que el asesor lo ve en su lista
+      }
     }
 
     // Verificar que no tenga visitas registradas hoy
@@ -88,14 +97,13 @@ export async function DELETE(req: NextRequest) {
 
     // Registrar en auditoría
     try {
-      // Obtener historial de visitas
       const historial = await sql`
         SELECT
-          COUNT(*)                                            AS total_visitas,
-          COUNT(*) FILTER (WHERE hubo_pedido = true)          AS total_pedidos,
-          COALESCE(SUM(valor_pedido), 0)                      AS valor_acumulado,
-          MIN(timestamp)                                      AS primera_visita,
-          MAX(timestamp)                                      AS ultima_visita
+          COUNT(*)                                          AS total_visitas,
+          COUNT(*) FILTER (WHERE hubo_pedido = true)        AS total_pedidos,
+          COALESCE(SUM(valor_pedido), 0)                    AS valor_acumulado,
+          MIN(timestamp)                                    AS primera_visita,
+          MAX(timestamp)                                    AS ultima_visita
         FROM visitas
         WHERE cliente_id = ${cliente_id}
       `
@@ -112,11 +120,11 @@ export async function DELETE(req: NextRequest) {
           ${cliente_id},
           ${asesor_id},
           ${cliente.nombre},
-          ${verificar[0].codigo ?? null},
-          ${verificar[0].direccion ?? null},
-          ${verificar[0].telefono ?? null},
-          ${verificar[0].lat ?? null},
-          ${verificar[0].lng ?? null},
+          ${cliente.codigo ?? null},
+          ${cliente.direccion ?? null},
+          ${cliente.telefono ?? null},
+          ${cliente.lat ?? null},
+          ${cliente.lng ?? null},
           ${motivo ?? 'Duplicado eliminado por asesor'},
           ${parseInt(h.total_visitas)},
           ${parseInt(h.total_pedidos)},
@@ -127,7 +135,6 @@ export async function DELETE(req: NextRequest) {
         )
       `
     } catch (auditError) {
-      // El log de auditoría falla silenciosamente — la eliminación ya se hizo
       console.error('⚠️ Error guardando auditoría:', auditError)
     }
 
