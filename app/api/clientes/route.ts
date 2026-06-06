@@ -1,11 +1,14 @@
 // ============================================================================
 // app/api/clientes/route.ts
-// ============================================================================
-// POST  → crear cliente nuevo desde el móvil del asesor
-// PATCH → actualizar coordenadas GPS y/o dirección de un cliente existente
+// ✅ POST  → crear cliente nuevo + agregarlo a rutas_dia del día actual
+// ✅ PATCH → actualizar coordenadas GPS y/o dirección de un cliente existente
 // ============================================================================
 import { sql } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
+
+function fechaColombia() {
+  return new Date().toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
+}
 
 // ── Crear cliente nuevo ──────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
@@ -22,6 +25,7 @@ export async function POST(req: NextRequest) {
 
     const codigoFinal = codigo?.trim() || `NEW-${Date.now()}`
 
+    // 1. Crear el cliente
     const result = await sql`
       INSERT INTO clientes (
         codigo, nombre, direccion, telefono,
@@ -41,11 +45,52 @@ export async function POST(req: NextRequest) {
       RETURNING id, codigo, nombre, direccion, telefono, lat, lng, asesor_id, activo
     `
 
+    const nuevoCliente = result[0]
+    const fecha = fechaColombia()
+
+    // 2. Obtener el orden máximo actual para este asesor en el día
+    const ordenResult = await sql`
+      SELECT COALESCE(MAX(orden), 0) + 1 as siguiente_orden
+      FROM rutas_dia
+      WHERE asesor_id = ${asesor_id}
+        AND fecha = ${fecha}
+    `
+    const orden = ordenResult[0]?.siguiente_orden ?? 1
+
+    // 3. Agregar a rutas_dia para que aparezca hoy y mañana
+    await sql`
+      INSERT INTO rutas_dia (asesor_id, cliente_id, fecha, orden, completada)
+      VALUES (${asesor_id}, ${nuevoCliente.id}, ${fecha}, ${orden}, false)
+      ON CONFLICT (asesor_id, cliente_id, fecha) DO NOTHING
+    `
+
+    // 4. También agregar al día siguiente para que persista en la ruta
+    const manana = new Date()
+    manana.setDate(manana.getDate() + 1)
+    const fechaManana = manana.toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
+
+    const ordenMananaResult = await sql`
+      SELECT COALESCE(MAX(orden), 0) + 1 as siguiente_orden
+      FROM rutas_dia
+      WHERE asesor_id = ${asesor_id}
+        AND fecha = ${fechaManana}
+    `
+    const ordenManana = ordenMananaResult[0]?.siguiente_orden ?? 1
+
+    await sql`
+      INSERT INTO rutas_dia (asesor_id, cliente_id, fecha, orden, completada)
+      VALUES (${asesor_id}, ${nuevoCliente.id}, ${fechaManana}, ${ordenManana}, false)
+      ON CONFLICT (asesor_id, cliente_id, fecha) DO NOTHING
+    `
+
+    console.log(`✅ Cliente creado: ${nuevoCliente.nombre} → agregado a rutas_dia ${fecha} y ${fechaManana}`)
+
     return NextResponse.json({
       success: true,
       mensaje: 'Cliente creado correctamente',
-      cliente: result[0],
+      cliente: nuevoCliente,
     })
+
   } catch (error) {
     console.error('Error creando cliente:', error)
     const msg = error instanceof Error ? error.message : 'Unknown'
@@ -72,23 +117,19 @@ export async function PATCH(req: NextRequest) {
       )
     }
 
-    // Actualizar solo los campos que vienen en el body
     if (lat != null && lng != null && direccion != null) {
-      // Ambos — GPS + dirección
       await sql`
         UPDATE clientes
         SET lat = ${lat}, lng = ${lng}, direccion = ${direccion}
         WHERE id = ${cliente_id}
       `
     } else if (lat != null && lng != null) {
-      // Solo GPS
       await sql`
         UPDATE clientes
         SET lat = ${lat}, lng = ${lng}
         WHERE id = ${cliente_id}
       `
     } else if (direccion != null) {
-      // Solo dirección
       await sql`
         UPDATE clientes
         SET direccion = ${direccion}
@@ -105,6 +146,7 @@ export async function PATCH(req: NextRequest) {
       success: true,
       mensaje: 'Cliente actualizado correctamente',
     })
+
   } catch (error) {
     console.error('Error actualizando cliente:', error)
     return NextResponse.json({ error: 'Error actualizando cliente' }, { status: 500 })
