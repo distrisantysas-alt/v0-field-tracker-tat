@@ -104,11 +104,11 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ── Actualizar GPS y/o dirección de cliente existente ────────────────────────
+// ── Actualizar GPS, dirección, teléfono y/o nombre de cliente existente ──────
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json()
-    const { cliente_id, lat, lng, direccion } = body
+    const { cliente_id, lat, lng, direccion, telefono, nombre } = body
 
     if (!cliente_id) {
       return NextResponse.json(
@@ -117,34 +117,45 @@ export async function PATCH(req: NextRequest) {
       )
     }
 
-    if (lat != null && lng != null && direccion != null) {
-      await sql`
-        UPDATE clientes
-        SET lat = ${lat}, lng = ${lng}, direccion = ${direccion}
-        WHERE id = ${cliente_id}
-      `
-    } else if (lat != null && lng != null) {
-      await sql`
-        UPDATE clientes
-        SET lat = ${lat}, lng = ${lng}
-        WHERE id = ${cliente_id}
-      `
-    } else if (direccion != null) {
-      await sql`
-        UPDATE clientes
-        SET direccion = ${direccion}
-        WHERE id = ${cliente_id}
-      `
-    } else {
+    if (nombre != null && !nombre.trim()) {
       return NextResponse.json(
-        { error: 'Debes enviar lat/lng o direccion para actualizar' },
+        { error: 'El nombre no puede quedar vacío' },
         { status: 400 }
       )
     }
 
+    // Construir el UPDATE dinámicamente solo con los campos enviados
+    const campos: string[] = []
+    if (lat != null)       campos.push('lat')
+    if (lng != null)       campos.push('lng')
+    if (direccion != null) campos.push('direccion')
+    if (telefono != null)  campos.push('telefono')
+    if (nombre != null)    campos.push('nombre')
+
+    if (campos.length === 0) {
+      return NextResponse.json(
+        { error: 'Debes enviar al menos un campo para actualizar (lat, lng, direccion, telefono, nombre)' },
+        { status: 400 }
+      )
+    }
+
+    await sql`
+      UPDATE clientes
+      SET
+        lat       = COALESCE(${lat ?? null}, lat),
+        lng       = COALESCE(${lng ?? null}, lng),
+        direccion = COALESCE(${direccion ?? null}, direccion),
+        telefono  = COALESCE(${telefono ?? null}, telefono),
+        nombre    = COALESCE(${nombre?.trim() ?? null}, nombre)
+      WHERE id = ${cliente_id}
+    `
+
+    console.log(`✏️ Cliente ${cliente_id} actualizado: ${campos.join(', ')}`)
+
     return NextResponse.json({
       success: true,
       mensaje: 'Cliente actualizado correctamente',
+      campos_actualizados: campos,
     })
 
   } catch (error) {
