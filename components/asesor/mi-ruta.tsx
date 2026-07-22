@@ -592,6 +592,32 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
     }
   }
 
+  const handleEliminarVisita = async () => {
+    if (!visitaId) { alert("No se encontró la visita de hoy"); return }
+    if (!confirm("¿Seguro que quieres eliminar este registro? El cliente volverá a pendiente.")) return
+    setGuardandoVisita(true)
+    try {
+      const res = await fetch('/api/checkin', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visita_id: visitaId,
+          asesor_id: asesorId,
+        }),
+      })
+      if (!res.ok) throw new Error()
+      // Resetear estado como si no hubiera visitado
+      setVisitaId(null)
+      setYaVisitado(false)
+      setVisitaEditada(false)
+      setMostrarEditarVisita(false)
+    } catch {
+      alert("Error eliminando la visita. Intenta nuevamente.")
+    } finally {
+      setGuardandoVisita(false)
+    }
+  }
+
   const handleAbrirCamara = () => fileInputRef.current?.click()
 
   const handleFotoSeleccionada = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1115,10 +1141,16 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
                     {editMonto && parseFloat(editMonto) > 0 && <p className="mt-1 text-xs text-success">${parseFloat(editMonto).toLocaleString('es-CO')}</p>}
                   </div>
                 )}
-                <button onClick={handleEditarVisita} disabled={guardandoVisita || (editHuboPedido && (!editMonto || parseFloat(editMonto) <= 0))}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-navy-accent/20 border border-navy-accent/40 py-2.5 text-sm font-semibold text-navy-accent transition-all active:scale-[0.97] disabled:opacity-50">
-                  {guardandoVisita ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Guardando...</span></> : <><Check className="h-4 w-4" /><span>Guardar cambios</span></>}
-                </button>
+                <div className="flex gap-2">
+                  <button onClick={handleEditarVisita} disabled={guardandoVisita || (editHuboPedido && (!editMonto || parseFloat(editMonto) <= 0))}
+                    className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-navy-accent/20 border border-navy-accent/40 py-2.5 text-sm font-semibold text-navy-accent transition-all active:scale-[0.97] disabled:opacity-50">
+                    {guardandoVisita ? <><Loader2 className="h-4 w-4 animate-spin" /><span>Guardando...</span></> : <><Check className="h-4 w-4" /><span>Guardar</span></>}
+                  </button>
+                  <button onClick={handleEliminarVisita} disabled={guardandoVisita}
+                    className="flex items-center justify-center gap-2 rounded-xl bg-danger/10 border border-danger/30 px-4 py-2.5 text-sm font-semibold text-danger transition-all active:scale-[0.97] disabled:opacity-50">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             )}
           </div>
