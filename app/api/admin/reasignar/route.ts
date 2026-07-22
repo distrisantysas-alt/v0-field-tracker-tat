@@ -1,5 +1,9 @@
 // ============================================================================
 // app/api/admin/reasignar/route.ts
+// ✅ Reasigna clientes entre asesores
+// ✅ Al reasignar, copia automáticamente las coordenadas de la última visita
+//    a los clientes que tengan lat=0 o null — para que el nuevo asesor
+//    pueda verlos en el mapa y el checkin funcione correctamente
 // ============================================================================
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
@@ -73,7 +77,7 @@ export async function POST(req: NextRequest) {
 
     const ids = clientesAMover.map((c: any) => c.id)
 
-    // Actualizar clientes propios
+    // ── Actualizar clientes propios ─────────────────────────────────────────
     const idsPropios = clientesAMover
       .filter((c: any) => propios.some((p: any) => p.id === c.id))
       .map((c: any) => c.id)
@@ -86,19 +90,17 @@ export async function POST(req: NextRequest) {
       `
     }
 
-    // Actualizar clientes compartidos — cambiar asesor_id en asesor_clientes
+    // ── Actualizar clientes compartidos ─────────────────────────────────────
     const idsCompartidos = clientesAMover
       .filter((c: any) => compartidos.some((s: any) => s.id === c.id))
       .map((c: any) => c.id)
 
     if (idsCompartidos.length > 0) {
-      // Quitar la asignación anterior
       await sql`
         DELETE FROM asesor_clientes
         WHERE asesor_id = ${asesor_origen_id}
           AND cliente_id = ANY(${idsCompartidos}::uuid[])
       `
-      // Asignar al destino (solo si no existe ya)
       for (const id of idsCompartidos) {
         await sql`
           INSERT INTO asesor_clientes (asesor_id, cliente_id)
@@ -106,6 +108,38 @@ export async function POST(req: NextRequest) {
           ON CONFLICT (asesor_id, cliente_id) DO NOTHING
         `
       }
+    }
+
+    // ── Copiar coordenadas de visitas a clientes sin GPS ────────────────────
+    // Para cada cliente reasignado que tenga lat=0 o null,
+    // toma el promedio de coordenadas capturadas en sus visitas históricas
+    let coordenadasActualizadas = 0
+    try {
+      const resultado = await sql`
+        UPDATE clientes c
+        SET
+          lat = subq.lat_prom,
+          lng = subq.lng_prom
+        FROM (
+          SELECT
+            cliente_id,
+            AVG(lat_capturada) as lat_prom,
+            AVG(lng_capturada) as lng_prom
+          FROM visitas
+          WHERE cliente_id = ANY(${ids}::uuid[])
+            AND lat_capturada IS NOT NULL
+            AND lat_capturada != 0
+            AND lng_capturada IS NOT NULL
+            AND lng_capturada != 0
+          GROUP BY cliente_id
+        ) subq
+        WHERE c.id = subq.cliente_id
+          AND (c.lat IS NULL OR c.lat = 0)
+      `
+      coordenadasActualizadas = resultado.count ?? 0
+      console.log(`📍 Coordenadas actualizadas en ${coordenadasActualizadas} clientes reasignados`)
+    } catch (e) {
+      console.error('⚠️ Error actualizando coordenadas tras reasignación:', e)
     }
 
     const clientesMovidos = ids.length
@@ -123,11 +157,12 @@ export async function POST(req: NextRequest) {
       success: true,
       mensaje: `${clientesMovidos} clientes reasignados correctamente`,
       detalle: {
-        de:                 origen[0]?.nombre,
-        a:                  destino[0]?.nombre,
-        clientes_movidos:   clientesMovidos,
-        rutas_reasignadas:  rutas?.length > 0 ? rutas : 'todas',
-        asesor_desactivado: desactivar_origen ?? false,
+        de:                       origen[0]?.nombre,
+        a:                        destino[0]?.nombre,
+        clientes_movidos:         clientesMovidos,
+        coordenadas_actualizadas: coordenadasActualizadas,
+        rutas_reasignadas:        rutas?.length > 0 ? rutas : 'todas',
+        asesor_desactivado:       desactivar_origen ?? false,
       }
     });
 
