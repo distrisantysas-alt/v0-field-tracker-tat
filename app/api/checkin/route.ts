@@ -1,8 +1,9 @@
 // ============================================================================
 // app/api/checkin/route.ts
-// ✅ POST  — registrar visita nueva
-// ✅ PATCH — marcar synced O editar hubo_pedido/valor_pedido del mismo día
-// ✅ GET   — health check
+// ✅ POST   — registrar visita nueva
+// ✅ PATCH  — marcar synced O editar hubo_pedido/valor_pedido del mismo día
+// ✅ DELETE — eliminar visita del mismo día (asesor se equivocó al registrar)
+// ✅ GET    — health check
 // ============================================================================
 
 import { sql } from '@/lib/db';
@@ -265,11 +266,87 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
+// ============================================================================
+// DELETE — eliminar visita del mismo día (el asesor se equivocó al registrar)
+// ✅ Solo borra visitas de HOY (Colombia) y solo del mismo asesor
+// ✅ Revierte rutas_dia.completada a false para que el cliente vuelva a pendiente
+// ============================================================================
+export async function DELETE(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { visita_id, asesor_id } = body;
+
+    if (!visita_id || !asesor_id) {
+      return NextResponse.json(
+        { error: 'visita_id y asesor_id son requeridos' },
+        { status: 400 }
+      );
+    }
+
+    const fechaHoy = obtenerFechaColombia();
+
+    // Verificar que la visita existe, pertenece al asesor y es de hoy
+    const visitaExistente = await sql`
+      SELECT id, cliente_id, hubo_pedido, valor_pedido
+      FROM visitas
+      WHERE id = ${visita_id}
+        AND asesor_id = ${asesor_id}
+        AND (timestamp AT TIME ZONE 'America/Bogota')::date = ${fechaHoy}::date
+      LIMIT 1
+    `;
+
+    if (visitaExistente.length === 0) {
+      return NextResponse.json(
+        { error: 'Visita no encontrada, no te pertenece, o no es de hoy. Solo se pueden eliminar visitas registradas el mismo día.' },
+        { status: 404 }
+      );
+    }
+
+    const visita = visitaExistente[0];
+
+    // Eliminar la visita
+    await sql`
+      DELETE FROM visitas
+      WHERE id = ${visita_id}
+        AND asesor_id = ${asesor_id}
+    `;
+
+    // Revertir el estado del cliente en rutas_dia para que vuelva a "pendiente"
+    try {
+      await sql`
+        UPDATE rutas_dia
+        SET completada = false
+        WHERE asesor_id = ${asesor_id}
+          AND cliente_id = ${visita.cliente_id}
+          AND fecha = ${fechaHoy}::date
+      `;
+    } catch (error) {
+      console.error('⚠️ Error revirtiendo rutas_dia tras eliminar visita:', error);
+    }
+
+    console.log(
+      `🗑️ Visita eliminada: ${visita_id}`,
+      `Asesor ${asesor_id} → Cliente ${visita.cliente_id}`,
+      visita.hubo_pedido ? `(tenía pedido de $${visita.valor_pedido.toLocaleString('es-CO')})` : '(sin pedido)'
+    );
+
+    return NextResponse.json({
+      success: true,
+      mensaje: 'Visita eliminada correctamente. El cliente vuelve a estar pendiente.',
+    });
+
+  } catch (error) {
+    console.error('❌ Error en DELETE /api/checkin:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: 'Error interno del servidor', details: errorMessage }, { status: 500 });
+  }
+}
+
 export async function GET() {
   return NextResponse.json({
     status: 'ok',
     endpoint: '/api/checkin',
-    methods: ['POST', 'PATCH'],
-    version: '4.0'
+    methods: ['POST', 'PATCH', 'DELETE'],
+    version: '5.0'
   });
 }
