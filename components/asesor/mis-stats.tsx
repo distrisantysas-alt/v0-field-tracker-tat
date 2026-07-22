@@ -13,7 +13,7 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import {
   Flame, Trophy, TrendingUp, Loader2, ShoppingBag,
-  Eye, DollarSign, Check, AlertTriangle, Clock, ChevronDown, ChevronUp
+  Eye, DollarSign, Check, AlertTriangle, Clock, ChevronDown, ChevronUp, Trash2
 } from 'lucide-react';
 import { type AsesorSession } from './login-asesor';
 
@@ -48,6 +48,26 @@ function esHoy(fechaStr: string): boolean {
 export function MisStats({ asesor }: MisStatsProps) {
   const ASESOR_ID = asesor.id;
   const [mostrarVisitas, setMostrarVisitas] = useState(true);
+  const [eliminandoId, setEliminandoId] = useState<string | null>(null);
+
+  const handleEliminarVisita = async (visitaId: string) => {
+    if (!confirm('¿Eliminar este registro? El cliente volverá a pendiente.')) return
+    setEliminandoId(visitaId)
+    try {
+      const res = await fetch('/api/checkin', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visita_id: visitaId, asesor_id: ASESOR_ID }),
+      })
+      if (!res.ok) throw new Error()
+      // Refrescar datos
+      window.location.reload()
+    } catch {
+      alert('Error eliminando la visita. Intenta nuevamente.')
+    } finally {
+      setEliminandoId(null)
+    }
+  }
 
   const hoy = new Date().toLocaleString('en-CA', {
     timeZone: 'America/Bogota'
@@ -300,6 +320,17 @@ export function MisStats({ asesor }: MisStatsProps) {
                         <p className="text-[10px] text-gray-600">Sin pedido</p>
                       )}
                     </div>
+                    {/* Botón eliminar */}
+                    <button
+                      onClick={() => handleEliminarVisita(v.id)}
+                      disabled={eliminandoId === v.id}
+                      className="shrink-0 flex h-7 w-7 items-center justify-center rounded-lg bg-danger/10 border border-danger/20 text-danger hover:bg-danger/20 transition-colors disabled:opacity-40"
+                    >
+                      {eliminandoId === v.id
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <Trash2 className="h-3.5 w-3.5" />
+                      }
+                    </button>
                   </div>
                 ))}
               </div>
