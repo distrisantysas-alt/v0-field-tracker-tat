@@ -8,6 +8,10 @@
 
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { requireSesion } from '@/lib/auth';
+
+const ROLES_ADMIN = ['supervisor', 'gerencia'];
+const VELOCIDAD_SOSPECHOSA_KMH = 120; // umbral informativo, no bloqueante — ajustable
 
 function obtenerFechaColombia(): string {
   return new Date().toLocaleString('en-CA', {
@@ -17,9 +21,12 @@ function obtenerFechaColombia(): string {
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireSesion(req);
+    if (auth instanceof NextResponse) return auth;
+    const asesor_id = auth.asesorId; // SIEMPRE de la sesión, nunca del body
+
     const body = await req.json();
     const {
-      asesor_id,
       cliente_id,
       lat,
       lng,
@@ -28,6 +35,8 @@ export async function POST(req: NextRequest) {
       hubo_pedido,
       valor_pedido,
       foto_url,
+      sin_gps,
+      accuracy,
     } = body;
 
     console.log('📍 Checkin request recibido:', {
@@ -70,6 +79,18 @@ export async function POST(req: NextRequest) {
       if (isNaN(valorPedidoNum) || valorPedidoNum < 0) {
         return NextResponse.json({ error: 'El valor del pedido debe ser un número positivo' }, { status: 400 });
       }
+    }
+
+    const sinGpsBool = sin_gps === true || sin_gps === 'true';
+
+    // Misma regla que ya existe en el frontend (handleRegistrar en mi-ruta.tsx),
+    // ahora también aplicada en el servidor: sin GPS del dispositivo, la foto
+    // es la única evidencia y no se puede omitir llamando a la API directo.
+    if (sinGpsBool && !foto_url) {
+      return NextResponse.json(
+        { error: 'Sin GPS del dispositivo, la foto es obligatoria como evidencia' },
+        { status: 400 }
+      );
     }
 
     // Prevención de duplicados
@@ -123,16 +144,52 @@ export async function POST(req: NextRequest) {
 
     const validada = distanciaMetros <= cliente.radio_metros;
 
+    const accuracyNum = accuracy != null && accuracy !== '' ? parseFloat(accuracy) : null;
+
+    // ── Señal informativa: velocidad implícita vs. la visita anterior ────────
+    // Nunca rechaza el registro — solo lo marca para que el supervisor lo vea
+    // en el panel de seguimiento (Fase 6). Compara contra la visita
+    // inmediatamente anterior del mismo asesor, sin importar el cliente.
+    let velocidadSospechosa = false;
+    try {
+      const anterior = await sql`
+        SELECT lat_capturada, lng_capturada, timestamp
+        FROM visitas
+        WHERE asesor_id = ${asesor_id}
+        ORDER BY timestamp DESC
+        LIMIT 1
+      `;
+      if (anterior.length > 0) {
+        const prev = anterior[0];
+        const distPrevResult = await sql`
+          SELECT haversine_metros(
+            ${prev.lat_capturada}::double precision, ${prev.lng_capturada}::double precision,
+            ${latNum}::double precision, ${lngNum}::double precision
+          ) AS distancia
+        `;
+        const distanciaKm = parseFloat(distPrevResult[0].distancia) / 1000;
+        const horasTranscurridas = (Date.now() - new Date(prev.timestamp).getTime()) / (1000 * 60 * 60);
+        if (horasTranscurridas > 0) {
+          const velocidadKmh = distanciaKm / horasTranscurridas;
+          velocidadSospechosa = velocidadKmh > VELOCIDAD_SOSPECHOSA_KMH;
+        }
+      }
+    } catch (error) {
+      console.error('⚠️ Error calculando velocidad implícita (no bloquea el registro):', error);
+    }
+
     const visitas = await sql`
       INSERT INTO visitas (
         asesor_id, cliente_id, lat_capturada, lng_capturada,
         distancia_metros, validada, notas, offline_id, synced,
-        hubo_pedido, valor_pedido, foto_url
+        hubo_pedido, valor_pedido, foto_url, sin_gps,
+        accuracy_metros, velocidad_sospechosa
       ) VALUES (
         ${asesor_id}, ${cliente_id}, ${latNum}, ${lngNum},
         ${distanciaMetros}, ${validada}, ${notas ?? null},
         ${offline_id ?? null}, ${offline_id ? false : true},
-        ${huboPedidoBool}, ${valorPedidoNum}, ${foto_url ?? null}
+        ${huboPedidoBool}, ${valorPedidoNum}, ${foto_url ?? null}, ${sinGpsBool},
+        ${accuracyNum}, ${velocidadSospechosa}
       )
       RETURNING *
     `;
@@ -194,8 +251,11 @@ export async function POST(req: NextRequest) {
 // ============================================================================
 export async function PATCH(req: NextRequest) {
   try {
+    const auth = await requireSesion(req);
+    if (auth instanceof NextResponse) return auth;
+
     const body = await req.json();
-    const { offline_id, visita_id, hubo_pedido, valor_pedido, asesor_id } = body;
+    const { offline_id, visita_id, hubo_pedido, valor_pedido, asesor_id: asesorIdBody } = body;
 
     // ── Modo 1: marcar synced (uso interno del SW) ──────────────────────────
     if (offline_id && !visita_id) {
@@ -211,10 +271,17 @@ export async function PATCH(req: NextRequest) {
     }
 
     // ── Modo 2: editar hubo_pedido / valor_pedido del mismo día ────────────
-    if (visita_id && asesor_id) {
+    if (visita_id) {
       if (hubo_pedido == null) {
         return NextResponse.json({ error: 'hubo_pedido es requerido' }, { status: 400 });
       }
+
+      // El asesor solo puede editar sus propias visitas. Un supervisor/gerencia
+      // puede corregir la visita de otro asesor si lo indica explícitamente en
+      // el body — pero queda registrado en editado_por, nunca se pierde el rastro.
+      const esAdmin = ROLES_ADMIN.includes(auth.rol);
+      const asesorObjetivo = esAdmin && asesorIdBody ? asesorIdBody : auth.asesorId;
+      const editadoPor = esAdmin && asesorObjetivo !== auth.asesorId ? auth.asesorId : null;
 
       const huboPedidoBool = hubo_pedido === true || hubo_pedido === 'true'
       let valorPedidoNum = 0
@@ -232,14 +299,27 @@ export async function PATCH(req: NextRequest) {
       // Solo permite editar visitas del mismo día en Colombia
       const fechaHoy = obtenerFechaColombia()
 
-      const visitas = await sql`
-        UPDATE visitas
-        SET hubo_pedido = ${huboPedidoBool}, valor_pedido = ${valorPedidoNum}
-        WHERE id = ${visita_id}
-          AND asesor_id = ${asesor_id}
-          AND (timestamp AT TIME ZONE 'America/Bogota')::date = ${fechaHoy}::date
-        RETURNING *
-      `
+      const visitas = editadoPor
+        ? await sql`
+            UPDATE visitas
+            SET hubo_pedido = ${huboPedidoBool},
+                valor_pedido = ${valorPedidoNum},
+                editado_por = ${editadoPor},
+                editado_en = NOW()
+            WHERE id = ${visita_id}
+              AND asesor_id = ${asesorObjetivo}
+              AND (timestamp AT TIME ZONE 'America/Bogota')::date = ${fechaHoy}::date
+            RETURNING *
+          `
+        : await sql`
+            UPDATE visitas
+            SET hubo_pedido = ${huboPedidoBool},
+                valor_pedido = ${valorPedidoNum}
+            WHERE id = ${visita_id}
+              AND asesor_id = ${asesorObjetivo}
+              AND (timestamp AT TIME ZONE 'America/Bogota')::date = ${fechaHoy}::date
+            RETURNING *
+          `
 
       if (visitas.length === 0) {
         return NextResponse.json(
@@ -248,7 +328,7 @@ export async function PATCH(req: NextRequest) {
         );
       }
 
-      console.log(`✏️ Visita editada: ${visita_id} — hubo_pedido: ${huboPedidoBool}, valor: $${valorPedidoNum}`)
+      console.log(`✏️ Visita editada: ${visita_id} — hubo_pedido: ${huboPedidoBool}, valor: $${valorPedidoNum}${editadoPor ? ` (editado por ${editadoPor})` : ''}`)
 
       return NextResponse.json({
         success: true,
@@ -273,8 +353,12 @@ export async function PATCH(req: NextRequest) {
 // ============================================================================
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requireSesion(req);
+    if (auth instanceof NextResponse) return auth;
+    const asesor_id = auth.asesorId; // solo el dueño puede borrar su propio registro
+
     const body = await req.json();
-    const { visita_id, asesor_id } = body;
+    const { visita_id } = body;
 
     if (!visita_id || !asesor_id) {
       return NextResponse.json(

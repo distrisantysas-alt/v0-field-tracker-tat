@@ -1,7 +1,11 @@
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { requireSesion } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
+  const auth = await requireSesion(req, ['supervisor', 'gerencia']);
+  if (auth instanceof NextResponse) return auth;
+
   const supervisorId = req.nextUrl.searchParams.get('supervisor_id');
   const fecha = req.nextUrl.searchParams.get('fecha')
                 ?? new Date().toISOString().split('T')[0];

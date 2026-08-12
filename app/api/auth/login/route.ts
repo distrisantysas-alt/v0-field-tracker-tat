@@ -3,6 +3,7 @@
 // ============================================================================
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { crearTokenSesion, setSessionCookie } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   try {
@@ -37,7 +38,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({
+    const token = await crearTokenSesion({
+      asesorId: asesor.id,
+      rol:      asesor.rol,
+      nombre:   asesor.nombre,
+    });
+
+    const response = NextResponse.json({
       success: true,
       asesor: {
         id:     asesor.id,
@@ -47,6 +54,8 @@ export async function POST(req: NextRequest) {
         rol:    asesor.rol,
       },
     });
+
+    return setSessionCookie(response, token);
 
   } catch (error) {
     console.error('Error en login:', error);

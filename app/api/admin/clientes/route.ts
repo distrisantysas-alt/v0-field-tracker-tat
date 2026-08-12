@@ -4,9 +4,15 @@
 
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { requireSesion } from '@/lib/auth';
+
+const ROLES_ADMIN = ['supervisor', 'gerencia'];
 
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireSesion(req, ROLES_ADMIN);
+    if (auth instanceof NextResponse) return auth;
+
     const { searchParams } = new URL(req.url);
 
     const buscar    = searchParams.get('buscar')    || '';
@@ -164,6 +170,9 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    const auth = await requireSesion(req, ROLES_ADMIN);
+    if (auth instanceof NextResponse) return auth;
+
     const body = await req.json();
     const { cliente_id, asesor_id, activo, nombre, direccion, telefono } = body;
 
@@ -203,6 +212,9 @@ export async function PATCH(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requireSesion(req, ROLES_ADMIN);
+    if (auth instanceof NextResponse) return auth;
+
     const { searchParams } = new URL(req.url);
     const cliente_id = searchParams.get('cliente_id');
 

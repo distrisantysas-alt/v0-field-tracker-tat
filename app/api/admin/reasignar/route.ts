@@ -7,9 +7,13 @@
 // ============================================================================
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { requireSesion } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireSesion(req, ['supervisor', 'gerencia']);
+    if (auth instanceof NextResponse) return auth;
+
     const body = await req.json();
     const { asesor_origen_id, asesor_destino_id, rutas, desactivar_origen } = body;
 

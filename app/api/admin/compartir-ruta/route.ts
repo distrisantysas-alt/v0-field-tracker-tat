@@ -6,9 +6,15 @@
 
 import { sql } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSesion } from '@/lib/auth'
+
+const ROLES_ADMIN = ['supervisor', 'gerencia']
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireSesion(req, ROLES_ADMIN)
+    if (auth instanceof NextResponse) return auth
+
     const { asesor_origen_id, asesor_destino_id, rutas } = await req.json()
 
     if (!asesor_origen_id || !asesor_destino_id || !rutas?.length) {
@@ -81,6 +87,9 @@ export async function POST(req: NextRequest) {
 // GET — Ver rutas compartidas con un asesor
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireSesion(req, ROLES_ADMIN)
+    if (auth instanceof NextResponse) return auth
+
     const { searchParams } = new URL(req.url)
     const asesor_id = searchParams.get('asesor_id')
 
@@ -114,6 +123,9 @@ export async function GET(req: NextRequest) {
 // DELETE — Quitar clientes compartidos
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requireSesion(req, ROLES_ADMIN)
+    if (auth instanceof NextResponse) return auth
+
     const { asesor_destino_id, asesor_origen_id, rutas } = await req.json()
 
     if (!asesor_destino_id || !asesor_origen_id) {

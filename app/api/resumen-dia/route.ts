@@ -14,20 +14,29 @@
 
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { requireSesion } from '@/lib/auth';
+
+const ROLES_ADMIN = ['supervisor', 'gerencia'];
 
 /**
  * Obtener fecha actual en Colombia
  */
 function obtenerFechaColombia(): string {
-  return new Date().toLocaleString('en-CA', { 
-    timeZone: 'America/Bogota' 
+  return new Date().toLocaleString('en-CA', {
+    timeZone: 'America/Bogota'
   }).split(',')[0];
 }
 
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireSesion(req);
+    if (auth instanceof NextResponse) return auth;
+
     const { searchParams } = new URL(req.url);
-    const asesor_id = searchParams.get('asesor_id');
+    // Un asesor solo ve su propio resumen. Supervisor/gerencia puede
+    // consultar el de un asesor específico pasando asesor_id explícito.
+    const asesorIdQuery = searchParams.get('asesor_id');
+    const asesor_id = ROLES_ADMIN.includes(auth.rol) && asesorIdQuery ? asesorIdQuery : auth.asesorId;
     const fecha = searchParams.get('fecha') || obtenerFechaColombia();
     const fecha_inicio = searchParams.get('fecha_inicio');
     const fecha_fin = searchParams.get('fecha_fin');
@@ -163,7 +172,8 @@ export async function GET(req: NextRequest) {
         v.notas,
         v.offline_id,
         v.synced,
-        v.foto_url
+        v.foto_url,
+        v.sin_gps
       FROM visitas v
       JOIN clientes c ON v.cliente_id = c.id
       WHERE v.asesor_id = ${asesor_id}
@@ -284,7 +294,8 @@ export async function GET(req: NextRequest) {
         },
         foto_url: v.foto_url ?? null,
         notas: v.notas,
-        sincronizada: v.synced
+        sincronizada: v.synced,
+        sin_gps: v.sin_gps ?? false
       }))
     });
 

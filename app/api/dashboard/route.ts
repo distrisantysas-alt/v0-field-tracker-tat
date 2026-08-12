@@ -4,6 +4,7 @@
 
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { requireSesion } from '@/lib/auth';
 
 function fechaColombia(): string {
   return new Date().toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0];
@@ -11,6 +12,9 @@ function fechaColombia(): string {
 
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireSesion(req, ['supervisor', 'gerencia']);
+    if (auth instanceof NextResponse) return auth;
+
     const { searchParams } = new URL(req.url);
     const fecha = searchParams.get('fecha') || fechaColombia();
     const zona  = searchParams.get('zona') || null;

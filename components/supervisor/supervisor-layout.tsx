@@ -15,7 +15,7 @@ import useSWR from "swr"
 import {
   Users, AlertTriangle, FileText, ChevronLeft, ChevronRight,
   Loader2, Check, TrendingUp, Eye, ShoppingBag, DollarSign,
-  ImageIcon, Camera, Map, Copy, X, Flag
+  ImageIcon, Camera, Map, Copy, X, Flag, Activity, Navigation, Gauge, MapPinOff
 } from "lucide-react"
 
 const MapaAsesores = dynamic(() => import('./supervisor-mapa-asesores'), {
@@ -40,7 +40,7 @@ function formatFecha(fechaStr: string): string {
   return fecha.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
-type TabId = "equipo" | "mapa" | "alertas" | "reportes"
+type TabId = "equipo" | "mapa" | "alertas" | "seguimiento" | "reportes"
 
 interface SupervisorLayoutProps { onBack: () => void }
 
@@ -66,10 +66,11 @@ export function SupervisorLayout({ onBack }: SupervisorLayoutProps) {
   const totalAlertas   = alertaCount + duplicadoCount
 
   const tabs = [
-    { id: "equipo"   as TabId, label: "Mi Equipo", icon: Users         },
-    { id: "mapa"     as TabId, label: "Mapa",      icon: Map           },
-    { id: "alertas"  as TabId, label: "Alertas",   icon: AlertTriangle },
-    { id: "reportes" as TabId, label: "Reportes",  icon: FileText      },
+    { id: "equipo"      as TabId, label: "Mi Equipo",   icon: Users         },
+    { id: "mapa"        as TabId, label: "Mapa",        icon: Map           },
+    { id: "alertas"     as TabId, label: "Alertas",     icon: AlertTriangle },
+    { id: "seguimiento" as TabId, label: "Seguimiento", icon: Activity      },
+    { id: "reportes"    as TabId, label: "Reportes",    icon: FileText      },
   ]
 
   return (
@@ -140,16 +141,17 @@ export function SupervisorLayout({ onBack }: SupervisorLayoutProps) {
 
       {/* Contenido */}
       <div className="flex-1 overflow-y-auto">
-        {isLoading && tab !== "mapa" && tab !== "alertas" ? (
+        {isLoading && tab !== "mapa" && tab !== "alertas" && tab !== "seguimiento" ? (
           <div className="flex h-64 items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-navy-accent" />
           </div>
         ) : (
           <>
-            {tab === "equipo"   && <EquipoView   data={data} />}
-            {tab === "mapa"     && <MapaAsesores />}
-            {tab === "alertas"  && <AlertasView  data={data} duplicados={duplicadosData?.reportes ?? []} />}
-            {tab === "reportes" && <ReportesView data={data} />}
+            {tab === "equipo"      && <EquipoView      data={data} />}
+            {tab === "mapa"        && <MapaAsesores />}
+            {tab === "alertas"     && <AlertasView     data={data} duplicados={duplicadosData?.reportes ?? []} />}
+            {tab === "seguimiento" && <SeguimientoView />}
+            {tab === "reportes"    && <ReportesView    data={data} />}
           </>
         )}
       </div>
@@ -351,6 +353,11 @@ function PerfilAsesor({ asesor, onBack }: { asesor: any; onBack: () => void }) {
                         {v.pedido?.hubo_pedido && (
                           <p className="text-xs text-success font-medium">{v.pedido?.valor_formato}</p>
                         )}
+                        {v.sin_gps && (
+                          <span className="mt-1 inline-block rounded-full bg-danger/20 text-danger text-[9px] font-bold px-1.5 py-0.5">
+                            SIN GPS
+                          </span>
+                        )}
                       </div>
                     </div>
                     {v.foto_url ? (
@@ -482,6 +489,173 @@ function AlertasView({ data, duplicados }: { data: any; duplicados: any[] }) {
           ))
         )}
       </div>
+    </div>
+  )
+}
+
+// ============================================================================
+// SEGUIMIENTO — señales informativas, todo de solo lectura, nada bloquea nada
+// ============================================================================
+function SeguimientoView() {
+  const [sub, setSub] = useState<"reubicaciones" | "distancia_cero" | "velocidad" | "fuera_rango">("reubicaciones")
+
+  const { data: historial, isLoading: loadHist } = useSWR(
+    '/api/admin/gps-historial?limit=50',
+    fetcher
+  )
+  const { data: seguimiento, isLoading: loadSeg } = useSWR(
+    '/api/admin/seguimiento',
+    fetcher,
+    { refreshInterval: 60000 }
+  )
+
+  const subTabs = [
+    { id: "reubicaciones" as const, label: "Reubicaciones GPS", count: historial?.historial?.length },
+    { id: "distancia_cero" as const, label: "Distancia 0.00",   count: seguimiento?.distancia_cero_por_asesor?.length },
+    { id: "velocidad"      as const, label: "Velocidad",        count: seguimiento?.velocidad_sospechosa?.length },
+    { id: "fuera_rango"    as const, label: "Pedidos fuera de rango", count: seguimiento?.pedidos_fuera_de_rango?.length },
+  ]
+
+  function formatHora(ts: string) {
+    return new Date(ts).toLocaleString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  }
+  function formatMonto(v: number) {
+    return `$${Math.round(Number(v)).toLocaleString('es-CO')}`
+  }
+
+  const cargando = loadHist || loadSeg
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="flex items-start gap-2 rounded-xl bg-navy-accent/10 border border-navy-accent/20 p-3">
+        <Activity className="h-4 w-4 text-navy-accent mt-0.5 shrink-0" />
+        <p className="text-xs text-gray-300">
+          Señales de contexto para conversar con el asesor si ves un patrón raro. Nada de esto bloquea ni aprueba/rechaza registros.
+        </p>
+      </div>
+
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {subTabs.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setSub(t.id)}
+            className={`shrink-0 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+              sub === t.id ? "bg-navy-accent text-white" : "bg-dark-surface text-gray-400 border border-white/10"
+            }`}
+          >
+            {t.label}
+            {typeof t.count === 'number' && t.count > 0 && (
+              <span className="rounded-full bg-white/20 px-1.5 text-[10px] font-bold">{t.count}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {cargando ? (
+        <div className="flex h-40 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-navy-accent" />
+        </div>
+      ) : (
+        <>
+          {sub === "reubicaciones" && (
+            <div className="space-y-2">
+              {(historial?.historial ?? []).length === 0 ? (
+                <EmptySeguimiento icon={Navigation} texto="Sin reubicaciones de GPS registradas" />
+              ) : (
+                historial.historial.map((h: any) => (
+                  <div key={h.id} className="rounded-xl bg-dark-surface border border-white/10 p-3 space-y-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-white truncate">{h.cliente_nombre}</p>
+                        <p className="text-[10px] text-gray-500">Movido por {h.asesor_nombre}</p>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-navy-accent/20 text-navy-accent text-[10px] font-bold px-2 py-0.5">
+                        {h.distancia_movida_metros != null ? `${Math.round(h.distancia_movida_metros).toLocaleString('es-CO')}m` : 'nuevo'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-gray-500">
+                      <span>{h.motivo === 'no_especificado' ? 'Sin motivo especificado' : h.motivo.replaceAll('_', ' ')}</span>
+                      <span className="font-mono">{formatHora(h.timestamp)}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {sub === "distancia_cero" && (
+            <div className="space-y-2">
+              {(seguimiento?.distancia_cero_por_asesor ?? []).length === 0 ? (
+                <EmptySeguimiento icon={MapPinOff} texto="Sin visitas en distancia 0.00 en los últimos 30 días" />
+              ) : (
+                seguimiento.distancia_cero_por_asesor.map((d: any) => (
+                  <div key={d.asesor_id} className="flex items-center gap-3 rounded-xl bg-dark-surface border border-white/10 p-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy-accent/20 text-xs font-bold text-navy-accent">
+                      {getInitials(d.asesor_nombre)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white truncate">{d.asesor_nombre}</p>
+                      <p className="text-[10px] text-gray-500">últimos 30 días</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-sm font-bold text-warning">{d.total_distancia_cero}</p>
+                      {d.con_pedido > 0 && <p className="text-[10px] text-gray-500">{d.con_pedido} con pedido</p>}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {sub === "velocidad" && (
+            <div className="space-y-2">
+              {(seguimiento?.velocidad_sospechosa ?? []).length === 0 ? (
+                <EmptySeguimiento icon={Gauge} texto="Sin visitas con velocidad implícita sospechosa" />
+              ) : (
+                seguimiento.velocidad_sospechosa.map((v: any) => (
+                  <div key={v.id} className="rounded-xl bg-dark-surface border border-white/10 p-3 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-white truncate">{v.asesor_nombre}</p>
+                      <p className="text-[10px] text-gray-500 truncate">{v.cliente_nombre}</p>
+                    </div>
+                    <span className="shrink-0 font-mono text-[10px] text-gray-500">{formatHora(v.timestamp)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {sub === "fuera_rango" && (
+            <div className="space-y-2">
+              {(seguimiento?.pedidos_fuera_de_rango ?? []).length === 0 ? (
+                <EmptySeguimiento icon={AlertTriangle} texto="Sin pedidos registrados fuera de rango" />
+              ) : (
+                seguimiento.pedidos_fuera_de_rango.map((p: any) => (
+                  <div key={p.id} className="rounded-xl border border-warning/20 bg-warning/5 p-3 space-y-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-white truncate">{p.asesor_nombre}</p>
+                        <p className="text-[10px] text-gray-500 truncate">{p.cliente_nombre} · {Math.round(p.distancia_metros)}m fuera</p>
+                      </div>
+                      <span className="shrink-0 text-sm font-bold text-warning">{formatMonto(p.valor_pedido)}</span>
+                    </div>
+                    <p className="text-[10px] text-gray-600 font-mono">{formatHora(p.timestamp)}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function EmptySeguimiento({ icon: Icon, texto }: { icon: any; texto: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 text-center rounded-xl bg-dark-surface border border-white/10">
+      <Icon className="h-10 w-10 text-gray-600 mb-3" />
+      <p className="text-gray-400 text-sm">{texto}</p>
     </div>
   )
 }

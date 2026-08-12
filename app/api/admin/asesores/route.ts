@@ -3,10 +3,16 @@
 // ============================================================================
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { requireSesion } from '@/lib/auth';
+
+const ROLES_ADMIN = ['supervisor', 'gerencia'];
 
 // ── GET: listar asesores ─────────────────────────────────────────────────────
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const auth = await requireSesion(req, ROLES_ADMIN);
+    if (auth instanceof NextResponse) return auth;
+
     const asesores = await sql`
       SELECT
         a.id, a.nombre, a.email, a.zona, a.activo, a.rol,
@@ -44,6 +50,9 @@ export async function GET() {
 // ── PATCH: editar nombre / zona / desactivar ─────────────────────────────────
 export async function PATCH(req: NextRequest) {
   try {
+    const auth = await requireSesion(req, ROLES_ADMIN);
+    if (auth instanceof NextResponse) return auth;
+
     const body = await req.json();
     const { asesor_id, nombre, zona, activo } = body;
 
