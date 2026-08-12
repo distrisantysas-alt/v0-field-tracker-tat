@@ -78,6 +78,10 @@ export interface ClienteConEstado extends Cliente {
   ultima_gestion_en: Date | null;
   ultimo_hubo_pedido: boolean | null;
   ultimo_valor_pedido: number | null;
+  // Panorama de oportunidad: últimas hasta 5 gestiones (más reciente primero)
+  // y cuántas de las más recientes seguidas fueron sin pedido
+  historial_reciente: { timestamp: string; hubo_pedido: boolean; valor_pedido: number }[];
+  racha_sin_pedido: number;
 }
 
 // Tipo para visitas offline pendientes de sincronizar
