@@ -16,8 +16,7 @@ import {
   TrendingUp, Users, AlertTriangle, ChevronUp, ChevronDown,
   Download, RefreshCw, BarChart2
 } from "lucide-react"
-
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+import { fetcher } from "@/lib/fetcher"
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function hoy(): string {

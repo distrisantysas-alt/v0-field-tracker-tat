@@ -33,6 +33,7 @@ import {
   guardarGPSOffline,
   generarOfflineID,
 } from "@/lib/db"
+import { fetcher } from "@/lib/fetcher"
 import { type AsesorSession } from "./login-asesor"
 
 type ClientStatus = "validada" | "sospechosa" | "pendiente"
@@ -61,8 +62,6 @@ const statusConfig: Record<ClientStatus, {
   sospechosa: { barColor: "bg-warning",  bgOpacity: "bg-warning/15",  textColor: "text-warning",  label: "SOSPECHOSA" },
   pendiente:  { barColor: "bg-gray-600", bgOpacity: "bg-gray-500/15", textColor: "text-gray-400", label: "PENDIENTE"  },
 }
-
-const fetcher = (url: string) => fetch(url).then(r => r.json())
 
 // ── Caché offline ─────────────────────────────────────────────────────────
 function cacheKey(asesorId: string, fecha: string) {

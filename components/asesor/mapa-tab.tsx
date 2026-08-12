@@ -11,8 +11,7 @@ import { useEffect, useRef, useState } from "react"
 import useSWR from "swr"
 import { Loader2, MapPin, X, Check, AlertTriangle, Search } from "lucide-react"
 import { type AsesorSession } from "./login-asesor"
-
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+import { fetcher } from "@/lib/fetcher"
 
 function fechaColombia() {
   return new Date().toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]

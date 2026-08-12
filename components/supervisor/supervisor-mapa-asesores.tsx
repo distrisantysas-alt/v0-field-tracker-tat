@@ -6,8 +6,7 @@
 import { useEffect, useRef, useState } from "react"
 import useSWR from "swr"
 import { Loader2, Map } from "lucide-react"
-
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+import { fetcher } from "@/lib/fetcher"
 
 function getInitials(nombre: string) {
   return nombre.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()

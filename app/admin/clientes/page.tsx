@@ -3,8 +3,7 @@
 import { useState } from 'react';
 import useSWR from 'swr';
 import { Search, UserCheck, UserX, Loader2, MapPin } from 'lucide-react';
-
-const fetcher = (url: string) => fetch(url).then(r => r.json());
+import { fetcher } from '@/lib/fetcher';
 
 interface Cliente {
   id: string;

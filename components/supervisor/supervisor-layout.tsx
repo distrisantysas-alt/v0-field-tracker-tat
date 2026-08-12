@@ -17,6 +17,7 @@ import {
   Loader2, Check, TrendingUp, Eye, ShoppingBag, DollarSign,
   ImageIcon, Camera, Map, Copy, X, Flag, Activity, Navigation, Gauge, MapPinOff
 } from "lucide-react"
+import { fetcher } from "@/lib/fetcher"
 
 const MapaAsesores = dynamic(() => import('./supervisor-mapa-asesores'), {
   ssr: false,
@@ -26,8 +27,6 @@ const MapaAsesores = dynamic(() => import('./supervisor-mapa-asesores'), {
     </div>
   )
 })
-
-const fetcher = (url: string) => fetch(url).then(r => r.json())
 
 function fechaColombia() {
   return new Date().toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
