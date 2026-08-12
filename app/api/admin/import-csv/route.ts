@@ -8,6 +8,7 @@
 
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { requireSesion } from '@/lib/auth';
 
 function limpiarEmail(email: string | null): string | null {
   if (!email) return null;
@@ -76,6 +77,9 @@ function parseCSV(text: string): any[] {
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireSesion(req, ['supervisor', 'gerencia']);
+    if (auth instanceof NextResponse) return auth;
+
     const body = await req.json();
     const { action, csvText, offset = 0 } = body;
 

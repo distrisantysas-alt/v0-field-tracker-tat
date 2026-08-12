@@ -35,6 +35,7 @@ function clearSession() {
     localStorage.removeItem("app_session")
     localStorage.removeItem("asesor_session")
   }
+  fetch("/api/auth/logout", { method: "POST" }).catch(() => {})
 }
 
 export default function Page() {

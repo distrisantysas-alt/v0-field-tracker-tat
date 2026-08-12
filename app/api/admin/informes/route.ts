@@ -11,6 +11,7 @@
 
 import { sql } from "@/lib/db"
 import { NextRequest, NextResponse } from "next/server"
+import { requireSesion } from "@/lib/auth"
 
 function hoy(): string {
   return new Date().toLocaleString("en-CA", { timeZone: "America/Bogota" }).split(",")[0]
@@ -21,6 +22,9 @@ function inicioMes(): string {
 
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireSesion(req, ['supervisor', 'gerencia'])
+    if (auth instanceof NextResponse) return auth
+
     const { searchParams } = new URL(req.url)
     const tipo        = searchParams.get("tipo") || "resumen"
     const fechaInicio = searchParams.get("fecha_inicio") || inicioMes()

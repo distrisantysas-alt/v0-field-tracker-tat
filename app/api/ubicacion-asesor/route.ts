@@ -1,12 +1,17 @@
 // app/api/ubicacion-asesor/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { sql } from '@/lib/db'
+import { requireSesion } from '@/lib/auth'
 
 // Guardar ubicación del asesor
 export async function POST(req: NextRequest) {
   try {
-    const { asesor_id, lat, lng } = await req.json()
-    if (!asesor_id || !lat || !lng) {
+    const auth = await requireSesion(req)
+    if (auth instanceof NextResponse) return auth
+    const asesor_id = auth.asesorId
+
+    const { lat, lng } = await req.json()
+    if (!lat || !lng) {
       return NextResponse.json({ error: 'Faltan datos' }, { status: 400 })
     }
     await sql`
@@ -22,8 +27,11 @@ export async function POST(req: NextRequest) {
 }
 
 // Obtener ubicaciones de todos los asesores
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const auth = await requireSesion(req)
+    if (auth instanceof NextResponse) return auth
+
     const rows = await sql`
       SELECT 
         u.asesor_id,

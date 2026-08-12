@@ -5,12 +5,19 @@
 // ============================================================================
 import { sql } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSesion } from '@/lib/auth'
+
+const ROLES_ADMIN = ['supervisor', 'gerencia']
 
 // ── Asesor reporta duplicado ─────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireSesion(req)
+    if (auth instanceof NextResponse) return auth
+    const asesor_id = auth.asesorId
+
     const body = await req.json()
-    const { cliente_id, asesor_id, nota } = body
+    const { cliente_id, nota } = body
 
     if (!cliente_id || !asesor_id) {
       return NextResponse.json(
@@ -55,6 +62,9 @@ export async function POST(req: NextRequest) {
 // ── Supervisor consulta reportes ─────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireSesion(req, ROLES_ADMIN)
+    if (auth instanceof NextResponse) return auth
+
     const estado = req.nextUrl.searchParams.get('estado') ?? 'pendiente'
 
     const reportes = await sql`
@@ -86,6 +96,9 @@ export async function GET(req: NextRequest) {
 // ── Supervisor resuelve reporte ───────────────────────────────────────────────
 export async function PATCH(req: NextRequest) {
   try {
+    const auth = await requireSesion(req, ROLES_ADMIN)
+    if (auth instanceof NextResponse) return auth
+
     const body = await req.json()
     const { reporte_id, accion } = body
     // accion: 'confirmar_duplicado' | 'descartar' | 'es_homonimo'

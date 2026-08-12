@@ -6,11 +6,16 @@
 
 import { sql } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSesion } from '@/lib/auth'
 
 export async function DELETE(req: NextRequest) {
   try {
+    const auth = await requireSesion(req)
+    if (auth instanceof NextResponse) return auth
+    const asesor_id = auth.asesorId
+
     const body = await req.json()
-    const { cliente_id, asesor_id, motivo } = body
+    const { cliente_id, motivo } = body
 
     if (!cliente_id || !asesor_id) {
       return NextResponse.json(

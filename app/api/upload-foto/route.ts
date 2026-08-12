@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { v2 as cloudinary } from "cloudinary"
+import { requireSesion } from "@/lib/auth"
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -13,6 +14,9 @@ cloudinary.config({
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireSesion(req)
+    if (auth instanceof NextResponse) return auth
+
     const { foto_base64 } = await req.json()
     if (!foto_base64) return NextResponse.json({ error: "Sin imagen" }, { status: 400 })
 

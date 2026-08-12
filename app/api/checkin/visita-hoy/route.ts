@@ -4,16 +4,20 @@
 // ============================================================================
 import { sql } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSesion } from '@/lib/auth'
 
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireSesion(req)
+    if (auth instanceof NextResponse) return auth
+    const asesor_id = auth.asesorId
+
     const { searchParams } = new URL(req.url)
-    const asesor_id  = searchParams.get('asesor_id')
     const cliente_id = searchParams.get('cliente_id')
-    const fecha      = searchParams.get('fecha')
+    const fecha       = searchParams.get('fecha')
 
     if (!asesor_id || !cliente_id || !fecha) {
-      return NextResponse.json({ error: 'asesor_id, cliente_id y fecha son requeridos' }, { status: 400 })
+      return NextResponse.json({ error: 'cliente_id y fecha son requeridos' }, { status: 400 })
     }
 
     const visitas = await sql`

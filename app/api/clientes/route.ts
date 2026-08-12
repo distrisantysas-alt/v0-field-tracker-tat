@@ -5,12 +5,17 @@
 // ============================================================================
 import { sql } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSesion } from '@/lib/auth'
 
 // ── Crear cliente nuevo ──────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireSesion(req)
+    if (auth instanceof NextResponse) return auth
+    const asesor_id = auth.asesorId
+
     const body = await req.json()
-    const { nombre, direccion, telefono, lat, lng, asesor_id, codigo } = body
+    const { nombre, direccion, telefono, lat, lng, codigo } = body
 
     if (!nombre || !asesor_id) {
       return NextResponse.json(
@@ -66,8 +71,11 @@ export async function POST(req: NextRequest) {
 // ── Actualizar nombre, dirección, teléfono y/o GPS ──────────────────────────
 export async function PATCH(req: NextRequest) {
   try {
+    const auth = await requireSesion(req)
+    if (auth instanceof NextResponse) return auth
+
     const body = await req.json()
-    const { cliente_id, lat, lng, direccion, telefono, nombre } = body
+    const { cliente_id, lat, lng, direccion, telefono, nombre, motivo } = body
 
     if (!cliente_id) {
       return NextResponse.json(
@@ -95,6 +103,40 @@ export async function PATCH(req: NextRequest) {
         { error: 'Debes enviar al menos un campo para actualizar' },
         { status: 400 }
       )
+    }
+
+    // Si se está moviendo el GPS, deja rastro en clientes_gps_historial ANTES
+    // del UPDATE (para poder guardar lat/lng anteriores). Nunca bloquea el
+    // guardado — si algo falla acá, el UPDATE de abajo sigue igual.
+    if (lat != null && lng != null) {
+      try {
+        const actual = await sql`SELECT lat, lng FROM clientes WHERE id = ${cliente_id}`
+        const latAnterior = actual[0]?.lat ?? null
+        const lngAnterior = actual[0]?.lng ?? null
+
+        let distanciaMovida: number | null = null
+        if (latAnterior != null && lngAnterior != null && Number(latAnterior) !== 0 && Number(lngAnterior) !== 0) {
+          const d = await sql`
+            SELECT haversine_metros(
+              ${latAnterior}::double precision, ${lngAnterior}::double precision,
+              ${lat}::double precision, ${lng}::double precision
+            ) AS distancia
+          `
+          distanciaMovida = parseFloat(d[0].distancia)
+        }
+
+        await sql`
+          INSERT INTO clientes_gps_historial (
+            cliente_id, asesor_id, lat_anterior, lng_anterior,
+            lat_nueva, lng_nueva, distancia_movida_metros, motivo
+          ) VALUES (
+            ${cliente_id}, ${auth.asesorId}, ${latAnterior}, ${lngAnterior},
+            ${lat}, ${lng}, ${distanciaMovida}, ${motivo?.trim() || 'no_especificado'}
+          )
+        `
+      } catch (histError) {
+        console.error('⚠️ Error guardando historial GPS (no bloquea el guardado):', histError)
+      }
     }
 
     await sql`

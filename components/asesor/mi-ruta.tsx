@@ -38,6 +38,20 @@ import { type AsesorSession } from "./login-asesor"
 type ClientStatus = "validada" | "sospechosa" | "pendiente"
 type TipoGestion  = "visita" | "pedido" | null
 type Vista        = "lista" | "gestion" | "nuevo-cliente"
+type OrdenModo    = "todos" | "sin_pedido_reciente" | "nunca_visitados" | "mayor_valor_anterior"
+
+const ordenOpciones: { valor: OrdenModo; label: string }[] = [
+  { valor: "todos",                label: "Todos" },
+  { valor: "sin_pedido_reciente",  label: "Sin pedido reciente" },
+  { valor: "nunca_visitados",      label: "Nunca visitados" },
+  { valor: "mayor_valor_anterior", label: "Mayor valor anterior" },
+]
+
+function diasDesde(fecha: string | Date | null): number | null {
+  if (!fecha) return null
+  const ms = Date.now() - new Date(fecha).getTime()
+  return Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24)))
+}
 
 const statusConfig: Record<ClientStatus, {
   barColor: string; bgOpacity: string; textColor: string; label: string
@@ -131,11 +145,13 @@ export function MiRuta({ asesor }: MiRutaProps) {
 
   const [currentTime, setCurrentTime]     = useState(getCurrentTime())
   const [isOnline, setIsOnline]           = useState(true)
-  const [userLocation, setUserLocation]   = useState<{ lat: number; lng: number } | null>(null)
+  const [sesionExpirada, setSesionExpirada] = useState(false)
+  const [userLocation, setUserLocation]   = useState<{ lat: number; lng: number; accuracy: number | null } | null>(null)
   const [vista, setVista]                 = useState<Vista>("lista")
   const [clienteActivo, setClienteActivo] = useState<ClienteConEstado | null>(null)
   const [buscar, setBuscar]               = useState("")
   const [filtroRuta, setFiltroRuta]       = useState("")
+  const [ordenPor, setOrdenPor]           = useState<OrdenModo>("todos")
   const [cachedData, setCachedData]       = useState<any>(() => leerCacheClientes(asesor.id, fecha))
 
   const { data: fetchedData, error, mutate } = useSWR(
@@ -172,8 +188,9 @@ export function MiRuta({ asesor }: MiRutaProps) {
 
   useEffect(() => {
     if (isOnline) {
-      sincronizarVisitasOffline().then(({ sincronizadas }) => {
+      sincronizarVisitasOffline().then(({ sincronizadas, sesionExpirada: expiro }) => {
         if (sincronizadas > 0) mutate()
+        setSesionExpirada(expiro)
       })
       sincronizarGPSPendientes()
     }
@@ -183,7 +200,7 @@ export function MiRuta({ asesor }: MiRutaProps) {
     const update = async () => {
       try {
         const pos = await obtenerPosicionGPS()
-        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy ?? null })
       } catch {}
     }
     update()
@@ -227,6 +244,29 @@ export function MiRuta({ asesor }: MiRutaProps) {
         (c.codigo || '').toLowerCase().includes(buscar.toLowerCase())
       : true
     return matchRuta && matchBuscar
+  })
+
+  const clientesOrdenados = [...clientesFiltrados].sort((a, b) => {
+    if (ordenPor === "todos") return 0
+
+    if (ordenPor === "nunca_visitados") {
+      const aNunca = !a.ultima_gestion_en, bNunca = !b.ultima_gestion_en
+      if (aNunca === bNunca) return 0
+      return aNunca ? -1 : 1
+    }
+
+    if (ordenPor === "mayor_valor_anterior") {
+      return (b.ultimo_valor_pedido ?? 0) - (a.ultimo_valor_pedido ?? 0)
+    }
+
+    // sin_pedido_reciente: primero los que NO tuvieron pedido en su última
+    // gestión (o nunca gestionaron), y entre ellos, los más atrasados primero
+    const aSinPedido = !a.ultimo_hubo_pedido
+    const bSinPedido = !b.ultimo_hubo_pedido
+    if (aSinPedido !== bSinPedido) return aSinPedido ? -1 : 1
+    const aTiempo = a.ultima_gestion_en ? new Date(a.ultima_gestion_en).getTime() : 0
+    const bTiempo = b.ultima_gestion_en ? new Date(b.ultima_gestion_en).getTime() : 0
+    return aTiempo - bTiempo // más antiguo (o nunca) primero
   })
 
   const visited = stats.validadas + stats.sospechosas
@@ -285,6 +325,15 @@ export function MiRuta({ asesor }: MiRutaProps) {
         <div className="flex items-center justify-center gap-2 bg-warning/20 border-b border-warning/30 px-4 py-2">
           <WifiOff className="h-3.5 w-3.5 text-warning shrink-0" />
           <p className="text-xs text-warning font-medium">Sin conexión — mostrando datos guardados · las visitas se sincronizarán al reconectar</p>
+        </div>
+      )}
+
+      {sesionExpirada && (
+        <div className="flex items-center justify-center gap-2 bg-danger/20 border-b border-danger/30 px-4 py-2">
+          <AlertTriangle className="h-3.5 w-3.5 text-danger shrink-0" />
+          <p className="text-xs text-danger font-medium">
+            Tu sesión expiró — tus visitas pendientes están guardadas y a salvo. Vuelve a iniciar sesión para sincronizarlas.
+          </p>
         </div>
       )}
 
@@ -400,22 +449,33 @@ export function MiRuta({ asesor }: MiRutaProps) {
             ))}
           </div>
         )}
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {ordenOpciones.map(op => (
+            <button
+              key={op.valor}
+              onClick={() => setOrdenPor(op.valor)}
+              className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                ordenPor === op.valor ? "bg-navy-accent text-white" : "bg-dark-surface text-gray-400 border border-white/10"
+              }`}
+            >{op.label}</button>
+          ))}
+        </div>
         <p className="text-xs text-gray-500 px-1">
-          {clientesFiltrados.length} de {total} clientes
+          {clientesOrdenados.length} de {total} clientes
           {filtroRuta && ` · Ruta ${filtroRuta}`}
           {buscar && ` · "${buscar}"`}
         </p>
       </div>
 
       <div className="mt-3 flex flex-col gap-2 px-4 pb-40">
-        {clientesFiltrados.length === 0 ? (
+        {clientesOrdenados.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <Search className="h-10 w-10 text-gray-600 mb-3" />
             <p className="text-gray-400 text-sm">No se encontraron clientes</p>
             <button onClick={() => { setBuscar(""); setFiltroRuta("") }} className="mt-2 text-xs text-navy-accent hover:underline">Limpiar filtros</button>
           </div>
         ) : (
-          clientesFiltrados.map((cliente: ClienteConEstado) => {
+          clientesOrdenados.map((cliente: ClienteConEstado) => {
             const estado     = determinarEstado(cliente)
             const config     = statusConfig[estado]
             const yaVisitado = !!cliente.visitado_en
@@ -451,6 +511,24 @@ export function MiRuta({ asesor }: MiRutaProps) {
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold text-white truncate">{getNombreSinRuta(cliente.nombre)}</p>
                     <p className="truncate text-xs text-gray-500">{cliente.direccion}</p>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      {!cliente.ultima_gestion_en ? (
+                        <span className="rounded-full border border-white/15 px-1.5 py-0.5 text-[9px] font-medium text-gray-500">
+                          Nunca visitado
+                        </span>
+                      ) : cliente.ultimo_hubo_pedido ? (
+                        <span className="rounded-full bg-success/15 px-1.5 py-0.5 text-[9px] font-bold text-success">
+                          ${Math.round(cliente.ultimo_valor_pedido ?? 0).toLocaleString('es-CO')}
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-gray-500/15 px-1.5 py-0.5 text-[9px] font-bold text-gray-400">
+                          Sin pedido
+                        </span>
+                      )}
+                      {cliente.ultima_gestion_en && (
+                        <span className="text-[9px] text-gray-600">hace {diasDesde(cliente.ultima_gestion_en)}d</span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
                     <span className={`font-mono text-[11px] ${sinGPS ? 'text-warning' : 'text-gray-400'}`}>
@@ -485,7 +563,7 @@ export function MiRuta({ asesor }: MiRutaProps) {
 interface GestionClienteProps {
   cliente:      ClienteConEstado
   asesorId:     string
-  userLocation: { lat: number; lng: number } | null
+  userLocation: { lat: number; lng: number; accuracy: number | null } | null
   isOnline:     boolean
   onVolver:     () => void
   onExito:      () => void
@@ -501,6 +579,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
   const [gpsGuardado, setGpsGuardado]   = useState(false)
   const [distancia, setDistancia]       = useState<number | null>(null)
   const [mostrarActualizarGPS, setMostrarActualizarGPS] = useState(false)
+  const [motivoGPS, setMotivoGPS]       = useState<string | null>(null)
 
   // ── Editar cliente ─────────────────────────────────────────────────────────
   const rutaActual   = getRuta(cliente.nombre)
@@ -641,7 +720,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
     setGuardandoGPS(true)
     try {
       if (!navigator.onLine) {
-        await guardarGPSOffline(cliente.id, userLocation.lat, userLocation.lng)
+        await guardarGPSOffline(cliente.id, userLocation.lat, userLocation.lng, motivoGPS)
         setGpsGuardado(true); setDistancia(0); setMostrarActualizarGPS(false)
         return
       }
@@ -651,7 +730,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
         const res = await fetch('/api/clientes', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cliente_id: cliente.id, lat: userLocation.lat, lng: userLocation.lng }),
+          body: JSON.stringify({ cliente_id: cliente.id, lat: userLocation.lat, lng: userLocation.lng, motivo: motivoGPS }),
           signal: controller.signal,
         })
         clearTimeout(timer)
@@ -734,8 +813,9 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
       return
     }
 
-    const latFinal  = userLocation?.lat ?? 0
-    const lngFinal  = userLocation?.lng ?? 0
+    const latFinal      = userLocation?.lat ?? 0
+    const lngFinal      = userLocation?.lng ?? 0
+    const accuracyFinal = userLocation?.accuracy ?? null
     const notaFinal = sinGpsDispositivo
       ? [nota, "⚠️ Registrado sin GPS del dispositivo"].filter(Boolean).join(" | ")
       : nota || null
@@ -766,6 +846,7 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
         cliente_id:   cliente.id,
         lat:          latFinal,
         lng:          lngFinal,
+        accuracy:     accuracyFinal,
         notas:        notaFinal,
         hubo_pedido:  tipoGestion === "pedido",
         valor_pedido: tipoGestion === "pedido" ? parseFloat(monto) : 0,
@@ -780,10 +861,14 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
         cliente_id:    payload.cliente_id,
         lat_capturada: payload.lat,
         lng_capturada: payload.lng,
+        accuracy:      accuracyFinal,
         notas:         payload.notas,
         hubo_pedido:   payload.hubo_pedido,
         valor_pedido:  payload.valor_pedido,
         foto_url,
+        // Si no se pudo subir todavía (sin conexión al capturar), guarda el
+        // base64 local para reintentar la subida cuando vuelva la señal.
+        foto_base64:   foto_url ? null : fotoBase64,
         sin_gps:       sinGpsDispositivo,
         timestamp:     new Date().toISOString(),
         synced:        false,
@@ -1030,6 +1115,28 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
                 {userLocation && <p className="text-[10px] text-gray-500 mt-1 font-mono">Tu posición: {userLocation.lat.toFixed(6)}, {userLocation.lng.toFixed(6)}</p>}
               </div>
             </div>
+
+            <div className="flex gap-1.5 mb-3">
+              {([
+                { valor: 'cliente_se_mudo',       label: 'Cliente se mudó' },
+                { valor: 'nunca_georreferenciado', label: 'Nunca georreferenciado' },
+                { valor: 'correccion_error_gps',  label: 'Corrección de error' },
+              ] as const).map(op => (
+                <button
+                  key={op.valor}
+                  type="button"
+                  onClick={() => setMotivoGPS(motivoGPS === op.valor ? null : op.valor)}
+                  className={`flex-1 rounded-lg border px-2 py-1.5 text-[10px] font-medium transition-colors ${
+                    motivoGPS === op.valor
+                      ? 'border-navy-accent bg-navy-accent/20 text-navy-accent'
+                      : 'border-white/10 bg-dark-surface text-gray-400 hover:text-white'
+                  }`}
+                >
+                  {op.label}
+                </button>
+              ))}
+            </div>
+
             <button onClick={handleCapturarGPS} disabled={guardandoGPS || !userLocation}
               className={`flex w-full items-center justify-center gap-2 rounded-xl border py-3 font-semibold text-sm transition-all active:scale-[0.97] disabled:opacity-50 ${
                 sinGPS ? 'bg-warning/20 border-warning/40 text-warning' : 'bg-navy-accent/20 border-navy-accent/40 text-navy-accent'

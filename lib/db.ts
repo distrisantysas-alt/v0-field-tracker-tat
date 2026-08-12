@@ -29,6 +29,7 @@ export interface Cliente {
   codigo: string;
   nombre: string;
   direccion: string;
+  telefono: string | null;
   lat: number;
   lng: number;
   radio_metros: number;
@@ -68,6 +69,15 @@ export interface ClienteConEstado extends Cliente {
   distancia_metros: number | null;
   visitado_en: Date | null;
   foto_url: string | null;
+  // Pedido de la visita de HOY (si ya se registró)
+  hubo_pedido: boolean | null;
+  valor_pedido: number | null;
+  ultima_foto_url: string | null;
+  ultima_visita_en: Date | null;
+  // Última gestión registrada alguna vez (hoy o no) — para priorizar la ruta
+  ultima_gestion_en: Date | null;
+  ultimo_hubo_pedido: boolean | null;
+  ultimo_valor_pedido: number | null;
 }
 
 // Tipo para visitas offline pendientes de sincronizar
@@ -77,10 +87,15 @@ export interface VisitaOffline {
   cliente_id:    number;
   lat_capturada: number;
   lng_capturada: number;
+  accuracy?:     number | null;
   notas:         string | null;
   hubo_pedido:   boolean;
   valor_pedido:  number;
   foto_url?:     string | null;
+  // Copia local de la foto (base64) para poder subirla al reconectar si
+  // se tomó estando offline — foto_url puede venir null en ese caso porque
+  // no hubo señal para subirla a Cloudinary en el momento de capturarla.
+  foto_base64?:  string | null;
   sin_gps?:      boolean;
   timestamp:     string;
   synced:        false;
@@ -169,13 +184,64 @@ export async function eliminarVisitaOffline(offline_id: string): Promise<void> {
   });
 }
 
-export async function sincronizarVisitasOffline(): Promise<{ sincronizadas: number; errores: number }> {
+// Guarda la URL ya subida para no reintentar el upload en cada sync si el
+// checkin en sí falla por otra razón (ej. red se cae justo después).
+async function actualizarFotoUrlVisitaOffline(offline_id: string, foto_url: string): Promise<void> {
+  const db = await initOfflineDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_VISITAS_OFFLINE, 'readwrite');
+    const store = tx.objectStore(STORE_VISITAS_OFFLINE);
+    const getRequest = store.get(offline_id);
+    getRequest.onsuccess = () => {
+      const visita = getRequest.result;
+      if (!visita) { resolve(); return; }
+      visita.foto_url = foto_url;
+      const putRequest = store.put(visita);
+      putRequest.onsuccess = () => resolve();
+      putRequest.onerror = () => reject(putRequest.error);
+    };
+    getRequest.onerror = () => reject(getRequest.error);
+  });
+}
+
+export async function sincronizarVisitasOffline(): Promise<{ sincronizadas: number; errores: number; sesionExpirada: boolean }> {
   const visitasPendientes = await obtenerVisitasOffline();
   let sincronizadas = 0;
   let errores = 0;
+  let sesionExpirada = false;
 
   for (const visita of visitasPendientes) {
+    if (sesionExpirada) break; // no tiene sentido seguir intentando, ninguna va a pasar
+
     try {
+      // Si la foto se tomó offline, nunca se subió — reintenta ahora que
+      // hay señal. Si el reintento falla, se salta esta visita por ahora
+      // (sigue esperando en la cola) en vez de enviarla sin evidencia.
+      let fotoUrl = visita.foto_url ?? null;
+      if (!fotoUrl && visita.foto_base64) {
+        try {
+          const uploadRes = await fetch('/api/upload-foto', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ foto_base64: visita.foto_base64 }),
+          });
+          if (uploadRes.ok) {
+            const uploadData = await uploadRes.json();
+            fotoUrl = uploadData.url ?? null;
+            if (fotoUrl) await actualizarFotoUrlVisitaOffline(visita.offline_id, fotoUrl);
+          } else if (uploadRes.status === 401) {
+            sesionExpirada = true;
+            continue;
+          } else {
+            errores++;
+            continue; // no se pudo subir la foto todavía, se reintenta después
+          }
+        } catch {
+          errores++;
+          continue;
+        }
+      }
+
       const response = await fetch('/api/checkin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -184,10 +250,11 @@ export async function sincronizarVisitasOffline(): Promise<{ sincronizadas: numb
           cliente_id:   visita.cliente_id,
           lat:          visita.lat_capturada,
           lng:          visita.lng_capturada,
+          accuracy:     visita.accuracy      ?? null,
           notas:        visita.notas,
           hubo_pedido:  visita.hubo_pedido  ?? false,
           valor_pedido: visita.valor_pedido ?? 0,
-          foto_url:     visita.foto_url     ?? null,
+          foto_url:     fotoUrl,
           sin_gps:      visita.sin_gps      ?? false,
           offline_id:   visita.offline_id,
         }),
@@ -195,6 +262,10 @@ export async function sincronizarVisitasOffline(): Promise<{ sincronizadas: numb
       if (response.ok) {
         await eliminarVisitaOffline(visita.offline_id);
         sincronizadas++;
+      } else if (response.status === 401) {
+        // Sesión expirada: NO se borra el registro local — se reintenta
+        // en cuanto el asesor vuelva a iniciar sesión.
+        sesionExpirada = true;
       } else {
         errores++;
       }
@@ -204,7 +275,7 @@ export async function sincronizarVisitasOffline(): Promise<{ sincronizadas: numb
     }
   }
 
-  return { sincronizadas, errores };
+  return { sincronizadas, errores, sesionExpirada };
 }
 
 // ---------------------------------------------------------------------------
@@ -218,6 +289,7 @@ export interface GPSPendiente {
   cliente_id: string
   lat: number
   lng: number
+  motivo?: string | null
   ts: string
 }
 
@@ -240,12 +312,12 @@ export function initOfflineDBv2(): Promise<IDBDatabase> {
   })
 }
 
-export async function guardarGPSOffline(clienteId: string, lat: number, lng: number): Promise<void> {
+export async function guardarGPSOffline(clienteId: string, lat: number, lng: number, motivo?: string | null): Promise<void> {
   const db = await initOfflineDBv2()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_GPS_OFFLINE, 'readwrite')
     const store = tx.objectStore(STORE_GPS_OFFLINE)
-    const request = store.put({ cliente_id: clienteId, lat, lng, ts: new Date().toISOString() })
+    const request = store.put({ cliente_id: clienteId, lat, lng, motivo: motivo ?? null, ts: new Date().toISOString() })
     request.onsuccess = () => resolve()
     request.onerror = () => reject(request.error)
   })
@@ -276,12 +348,12 @@ export async function eliminarGPSPendiente(clienteId: string): Promise<void> {
 export async function sincronizarGPSPendientes(): Promise<void> {
   const pendientes = await obtenerGPSPendientes()
   if (pendientes.length === 0) return
-  for (const { cliente_id, lat, lng } of pendientes) {
+  for (const { cliente_id, lat, lng, motivo } of pendientes) {
     try {
       const res = await fetch('/api/clientes', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cliente_id, lat, lng }),
+        body: JSON.stringify({ cliente_id, lat, lng, motivo }),
       })
       if (res.ok) await eliminarGPSPendiente(cliente_id)
     } catch {}

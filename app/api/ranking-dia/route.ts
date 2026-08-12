@@ -7,9 +7,13 @@
 
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
+import { requireSesion } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireSesion(req);
+    if (auth instanceof NextResponse) return auth;
+
     const fecha = req.nextUrl.searchParams.get('fecha')
       ?? new Date().toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0];
 
