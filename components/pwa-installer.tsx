@@ -46,8 +46,19 @@ export function PWAInstaller() {
         })
       })
 
-      // Verificar actualizaciones cada 60 segundos
+      // Verificar apenas se registra (no esperar el primer tick del interval)
+      registration.update()
+
+      // Verificar cada 60 segundos mientras la app está en primer plano
       setInterval(() => registration.update(), 60 * 1000)
+
+      // Verificar al volver a primer plano — es el caso típico en celular:
+      // la app quedó en segundo plano (temporizadores pausados por el SO)
+      // y el asesor vuelve a abrirla más tarde sin haber pasado los 60s
+      // seguidos necesarios para que el interval la agarre.
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') registration.update()
+      })
 
     }).catch(err => console.error('[PWA] Error:', err))
 
