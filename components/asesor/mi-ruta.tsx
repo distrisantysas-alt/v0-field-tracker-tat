@@ -38,10 +38,11 @@ import { type AsesorSession } from "./login-asesor"
 type ClientStatus = "validada" | "sospechosa" | "pendiente"
 type TipoGestion  = "visita" | "pedido" | null
 type Vista        = "lista" | "gestion" | "nuevo-cliente"
-type OrdenModo    = "todos" | "sin_pedido_reciente" | "nunca_visitados" | "mayor_valor_anterior"
+type OrdenModo    = "todos" | "sin_pedido_reciente" | "nunca_visitados" | "mayor_valor_anterior" | "racha_sin_pedido"
 
 const ordenOpciones: { valor: OrdenModo; label: string }[] = [
   { valor: "todos",                label: "Todos" },
+  { valor: "racha_sin_pedido",     label: "Oportunidad (racha sin pedido)" },
   { valor: "sin_pedido_reciente",  label: "Sin pedido reciente" },
   { valor: "nunca_visitados",      label: "Nunca visitados" },
   { valor: "mayor_valor_anterior", label: "Mayor valor anterior" },
@@ -257,6 +258,12 @@ export function MiRuta({ asesor }: MiRutaProps) {
 
     if (ordenPor === "mayor_valor_anterior") {
       return (b.ultimo_valor_pedido ?? 0) - (a.ultimo_valor_pedido ?? 0)
+    }
+
+    if (ordenPor === "racha_sin_pedido") {
+      // Mayor racha de visitas seguidas sin pedido primero — panorama de
+      // oportunidad: quién dejó de comprar, no solo "no compró la última vez"
+      return (b.racha_sin_pedido ?? 0) - (a.racha_sin_pedido ?? 0)
     }
 
     // sin_pedido_reciente: primero los que NO tuvieron pedido en su última
@@ -519,6 +526,10 @@ export function MiRuta({ asesor }: MiRutaProps) {
                       ) : cliente.ultimo_hubo_pedido ? (
                         <span className="rounded-full bg-success/15 px-1.5 py-0.5 text-[9px] font-bold text-success">
                           ${Math.round(cliente.ultimo_valor_pedido ?? 0).toLocaleString('es-CO')}
+                        </span>
+                      ) : (cliente.racha_sin_pedido ?? 0) >= 2 ? (
+                        <span className="rounded-full bg-warning/20 px-1.5 py-0.5 text-[9px] font-bold text-warning">
+                          Sin pedido ×{cliente.racha_sin_pedido}{cliente.racha_sin_pedido >= 5 ? '+' : ''}
                         </span>
                       ) : (
                         <span className="rounded-full bg-gray-500/15 px-1.5 py-0.5 text-[9px] font-bold text-gray-400">
@@ -977,6 +988,35 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
             </button>
           </div>
         </div>
+
+        {/* Historial reciente — panorama de oportunidad comercial */}
+        {cliente.historial_reciente && cliente.historial_reciente.length > 0 && (
+          <div className="rounded-xl bg-dark-surface border border-white/10 p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-white">Historial reciente</p>
+              {(cliente.racha_sin_pedido ?? 0) >= 2 && (
+                <span className="rounded-full bg-warning/20 text-warning text-[9px] font-bold px-2 py-0.5">
+                  {cliente.racha_sin_pedido}{cliente.racha_sin_pedido >= 5 ? '+' : ''} visitas sin pedido
+                </span>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              {cliente.historial_reciente.map((h, i) => (
+                <div key={i} className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${h.hubo_pedido ? 'bg-success' : 'bg-gray-600'}`} />
+                    <span className="text-gray-400 font-mono">
+                      {new Date(h.timestamp).toLocaleDateString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: 'short' })}
+                    </span>
+                  </div>
+                  <span className={h.hubo_pedido ? 'text-success font-medium' : 'text-gray-600'}>
+                    {h.hubo_pedido ? `$${Math.round(h.valor_pedido).toLocaleString('es-CO')}` : 'Sin pedido'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Panel editar cliente */}
         {mostrarEditarCliente && !clienteGuardado && (

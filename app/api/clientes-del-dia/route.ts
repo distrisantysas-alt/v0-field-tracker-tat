@@ -7,13 +7,21 @@
 // ✅ Incluye clientes compartidos vía asesor_clientes
 // ✅ Incluye ultima_foto_url — foto de la última visita (persiste entre días)
 // ✅ Incluye clientes nuevos creados por el asesor aunque no estén en rutas_dia
-// ✅ Incluye última gestión (hubo_pedido/valor_pedido/fecha) para priorizar la ruta
+// ✅ Incluye historial de las últimas 5 gestiones por cliente — no solo la
+//    última — para que el asesor vea el patrón (quién dejó de comprarle) y
+//    no solo el dato aislado de la visita más reciente.
 // ============================================================================
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireSesion } from '@/lib/auth';
 
 const ROLES_ADMIN = ['supervisor', 'gerencia'];
+
+interface GestionHistorial {
+  timestamp: string;
+  hubo_pedido: boolean;
+  valor_pedido: string | number;
+}
 
 export async function GET(req: NextRequest) {
   const auth = await requireSesion(req);
@@ -64,9 +72,7 @@ export async function GET(req: NextRequest) {
         v.valor_pedido,
         uv.foto_url AS ultima_foto_url,
         uv.timestamp AS ultima_visita_en,
-        ult.timestamp AS ultima_gestion_en,
-        ult.hubo_pedido AS ultimo_hubo_pedido,
-        ult.valor_pedido AS ultimo_valor_pedido
+        hist.historial AS historial_reciente
       FROM rutas_dia r
       JOIN clientes c ON c.id = r.cliente_id
       LEFT JOIN visitas v
@@ -83,13 +89,16 @@ export async function GET(req: NextRequest) {
         LIMIT 1
       ) uv ON true
       LEFT JOIN LATERAL (
-        SELECT timestamp, hubo_pedido, valor_pedido
-        FROM visitas
-        WHERE cliente_id = c.id
-          AND asesor_id = ${asesorId}
-        ORDER BY timestamp DESC
-        LIMIT 1
-      ) ult ON true
+        SELECT jsonb_agg(h ORDER BY h.timestamp DESC) AS historial
+        FROM (
+          SELECT timestamp, hubo_pedido, valor_pedido
+          FROM visitas
+          WHERE cliente_id = c.id
+            AND asesor_id = ${asesorId}
+          ORDER BY timestamp DESC
+          LIMIT 5
+        ) h
+      ) hist ON true
       WHERE r.asesor_id = ${asesorId}
         AND r.fecha = ${fecha}::date
 
@@ -114,9 +123,7 @@ export async function GET(req: NextRequest) {
         v.valor_pedido,
         uv.foto_url AS ultima_foto_url,
         uv.timestamp AS ultima_visita_en,
-        ult.timestamp AS ultima_gestion_en,
-        ult.hubo_pedido AS ultimo_hubo_pedido,
-        ult.valor_pedido AS ultimo_valor_pedido
+        hist.historial AS historial_reciente
       FROM clientes c
       LEFT JOIN visitas v
         ON v.cliente_id = c.id
@@ -132,13 +139,16 @@ export async function GET(req: NextRequest) {
         LIMIT 1
       ) uv ON true
       LEFT JOIN LATERAL (
-        SELECT timestamp, hubo_pedido, valor_pedido
-        FROM visitas
-        WHERE cliente_id = c.id
-          AND asesor_id = ${asesorId}
-        ORDER BY timestamp DESC
-        LIMIT 1
-      ) ult ON true
+        SELECT jsonb_agg(h ORDER BY h.timestamp DESC) AS historial
+        FROM (
+          SELECT timestamp, hubo_pedido, valor_pedido
+          FROM visitas
+          WHERE cliente_id = c.id
+            AND asesor_id = ${asesorId}
+          ORDER BY timestamp DESC
+          LIMIT 5
+        ) h
+      ) hist ON true
       WHERE c.asesor_id = ${asesorId}
         AND c.activo = true
         AND c.id NOT IN (
@@ -167,9 +177,7 @@ export async function GET(req: NextRequest) {
         v.valor_pedido,
         uv.foto_url AS ultima_foto_url,
         uv.timestamp AS ultima_visita_en,
-        ult.timestamp AS ultima_gestion_en,
-        ult.hubo_pedido AS ultimo_hubo_pedido,
-        ult.valor_pedido AS ultimo_valor_pedido
+        hist.historial AS historial_reciente
       FROM asesor_clientes ac
       JOIN clientes c ON c.id = ac.cliente_id
       LEFT JOIN visitas v
@@ -186,13 +194,16 @@ export async function GET(req: NextRequest) {
         LIMIT 1
       ) uv ON true
       LEFT JOIN LATERAL (
-        SELECT timestamp, hubo_pedido, valor_pedido
-        FROM visitas
-        WHERE cliente_id = c.id
-          AND asesor_id = ${asesorId}
-        ORDER BY timestamp DESC
-        LIMIT 1
-      ) ult ON true
+        SELECT jsonb_agg(h ORDER BY h.timestamp DESC) AS historial
+        FROM (
+          SELECT timestamp, hubo_pedido, valor_pedido
+          FROM visitas
+          WHERE cliente_id = c.id
+            AND asesor_id = ${asesorId}
+          ORDER BY timestamp DESC
+          LIMIT 5
+        ) h
+      ) hist ON true
       WHERE ac.asesor_id = ${asesorId}
         AND c.activo = true
         AND c.id NOT IN (
@@ -224,9 +235,7 @@ export async function GET(req: NextRequest) {
         v.valor_pedido,
         uv.foto_url AS ultima_foto_url,
         uv.timestamp AS ultima_visita_en,
-        ult.timestamp AS ultima_gestion_en,
-        ult.hubo_pedido AS ultimo_hubo_pedido,
-        ult.valor_pedido AS ultimo_valor_pedido
+        hist.historial AS historial_reciente
       FROM clientes c
       LEFT JOIN visitas v
         ON v.cliente_id = c.id
@@ -242,13 +251,16 @@ export async function GET(req: NextRequest) {
         LIMIT 1
       ) uv ON true
       LEFT JOIN LATERAL (
-        SELECT timestamp, hubo_pedido, valor_pedido
-        FROM visitas
-        WHERE cliente_id = c.id
-          AND asesor_id = ${asesorId}
-        ORDER BY timestamp DESC
-        LIMIT 1
-      ) ult ON true
+        SELECT jsonb_agg(h ORDER BY h.timestamp DESC) AS historial
+        FROM (
+          SELECT timestamp, hubo_pedido, valor_pedido
+          FROM visitas
+          WHERE cliente_id = c.id
+            AND asesor_id = ${asesorId}
+          ORDER BY timestamp DESC
+          LIMIT 5
+        ) h
+      ) hist ON true
       WHERE c.asesor_id = ${asesorId}
         AND c.activo = true
 
@@ -273,9 +285,7 @@ export async function GET(req: NextRequest) {
         v.valor_pedido,
         uv.foto_url AS ultima_foto_url,
         uv.timestamp AS ultima_visita_en,
-        ult.timestamp AS ultima_gestion_en,
-        ult.hubo_pedido AS ultimo_hubo_pedido,
-        ult.valor_pedido AS ultimo_valor_pedido
+        hist.historial AS historial_reciente
       FROM asesor_clientes ac
       JOIN clientes c ON c.id = ac.cliente_id
       LEFT JOIN visitas v
@@ -292,18 +302,48 @@ export async function GET(req: NextRequest) {
         LIMIT 1
       ) uv ON true
       LEFT JOIN LATERAL (
-        SELECT timestamp, hubo_pedido, valor_pedido
-        FROM visitas
-        WHERE cliente_id = c.id
-          AND asesor_id = ${asesorId}
-        ORDER BY timestamp DESC
-        LIMIT 1
-      ) ult ON true
+        SELECT jsonb_agg(h ORDER BY h.timestamp DESC) AS historial
+        FROM (
+          SELECT timestamp, hubo_pedido, valor_pedido
+          FROM visitas
+          WHERE cliente_id = c.id
+            AND asesor_id = ${asesorId}
+          ORDER BY timestamp DESC
+          LIMIT 5
+        ) h
+      ) hist ON true
       WHERE ac.asesor_id = ${asesorId}
         AND c.activo = true
       ORDER BY nombre ASC
     `;
   }
+
+  // ── Derivar última gestión + racha sin pedido a partir del historial ────
+  // Se calcula acá (no en SQL) para mantener la query legible — es un simple
+  // recorrido del array de hasta 5 gestiones que ya trajo el LATERAL.
+  clientes = clientes.map((c: any) => {
+    const historial: GestionHistorial[] = c.historial_reciente ?? [];
+    const ultima = historial[0] ?? null;
+
+    let rachaSinPedido = 0;
+    for (const h of historial) {
+      if (h.hubo_pedido) break;
+      rachaSinPedido++;
+    }
+
+    return {
+      ...c,
+      ultima_gestion_en: ultima?.timestamp ?? null,
+      ultimo_hubo_pedido: ultima?.hubo_pedido ?? null,
+      ultimo_valor_pedido: ultima?.valor_pedido != null ? parseFloat(String(ultima.valor_pedido)) : null,
+      racha_sin_pedido: rachaSinPedido,
+      historial_reciente: historial.map(h => ({
+        timestamp: h.timestamp,
+        hubo_pedido: h.hubo_pedido,
+        valor_pedido: parseFloat(String(h.valor_pedido)),
+      })),
+    };
+  });
 
   const stats = {
     total:       clientes.length,
