@@ -16,8 +16,7 @@ import {
   Eye, DollarSign, Check, AlertTriangle, Clock, ChevronDown, ChevronUp, Trash2
 } from 'lucide-react';
 import { type AsesorSession } from './login-asesor';
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+import { fetcher } from '@/lib/fetcher';
 
 interface DiaStats {
   fecha: string;

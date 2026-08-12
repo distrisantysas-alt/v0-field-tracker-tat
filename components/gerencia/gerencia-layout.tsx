@@ -15,8 +15,7 @@ import {
   MapPin, CheckCircle, AlertCircle, FileUp, Share2,
   ChevronUp, ChevronDown, Download
 } from "lucide-react"
-
-const fetcher = (url: string) => fetch(url).then(r => r.json())
+import { fetcher } from "@/lib/fetcher"
 
 function fechaColombia() {
   return new Date().toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
