@@ -83,7 +83,6 @@ export async function GET(req: NextRequest) {
         SELECT foto_url, timestamp
         FROM visitas
         WHERE cliente_id = c.id
-          AND asesor_id = ${asesorId}
           AND foto_url IS NOT NULL
         ORDER BY timestamp DESC
         LIMIT 1
@@ -94,7 +93,6 @@ export async function GET(req: NextRequest) {
           SELECT timestamp, hubo_pedido, valor_pedido
           FROM visitas
           WHERE cliente_id = c.id
-            AND asesor_id = ${asesorId}
           ORDER BY timestamp DESC
           LIMIT 5
         ) h
@@ -133,7 +131,6 @@ export async function GET(req: NextRequest) {
         SELECT foto_url, timestamp
         FROM visitas
         WHERE cliente_id = c.id
-          AND asesor_id = ${asesorId}
           AND foto_url IS NOT NULL
         ORDER BY timestamp DESC
         LIMIT 1
@@ -144,7 +141,6 @@ export async function GET(req: NextRequest) {
           SELECT timestamp, hubo_pedido, valor_pedido
           FROM visitas
           WHERE cliente_id = c.id
-            AND asesor_id = ${asesorId}
           ORDER BY timestamp DESC
           LIMIT 5
         ) h
@@ -188,7 +184,6 @@ export async function GET(req: NextRequest) {
         SELECT foto_url, timestamp
         FROM visitas
         WHERE cliente_id = c.id
-          AND asesor_id = ${asesorId}
           AND foto_url IS NOT NULL
         ORDER BY timestamp DESC
         LIMIT 1
@@ -199,7 +194,6 @@ export async function GET(req: NextRequest) {
           SELECT timestamp, hubo_pedido, valor_pedido
           FROM visitas
           WHERE cliente_id = c.id
-            AND asesor_id = ${asesorId}
           ORDER BY timestamp DESC
           LIMIT 5
         ) h
@@ -245,7 +239,6 @@ export async function GET(req: NextRequest) {
         SELECT foto_url, timestamp
         FROM visitas
         WHERE cliente_id = c.id
-          AND asesor_id = ${asesorId}
           AND foto_url IS NOT NULL
         ORDER BY timestamp DESC
         LIMIT 1
@@ -256,7 +249,6 @@ export async function GET(req: NextRequest) {
           SELECT timestamp, hubo_pedido, valor_pedido
           FROM visitas
           WHERE cliente_id = c.id
-            AND asesor_id = ${asesorId}
           ORDER BY timestamp DESC
           LIMIT 5
         ) h
@@ -296,7 +288,6 @@ export async function GET(req: NextRequest) {
         SELECT foto_url, timestamp
         FROM visitas
         WHERE cliente_id = c.id
-          AND asesor_id = ${asesorId}
           AND foto_url IS NOT NULL
         ORDER BY timestamp DESC
         LIMIT 1
@@ -307,7 +298,6 @@ export async function GET(req: NextRequest) {
           SELECT timestamp, hubo_pedido, valor_pedido
           FROM visitas
           WHERE cliente_id = c.id
-            AND asesor_id = ${asesorId}
           ORDER BY timestamp DESC
           LIMIT 5
         ) h
