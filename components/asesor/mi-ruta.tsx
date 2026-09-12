@@ -293,6 +293,16 @@ export function MiRuta({ asesor }: MiRutaProps) {
     : null
   const hayOportunidadClara = (sugerenciaPrioridad?.racha_sin_pedido ?? 0) >= 2
 
+  // Segunda señal, independiente de la anterior: entre los pendientes,
+  // quién SÍ compró en su última gestión (cliente efectivo comprobado) y
+  // hoy sigue sin visita. No competir por el mismo slot que "racha sin
+  // pedido" — son dos oportunidades distintas (reactivar vs. no perder a
+  // quien ya compra) y ambas merecen aparecer.
+  const clienteEfectivoPendiente = [...clientesPendientesHoy]
+    .filter(c => c.ultimo_hubo_pedido === true)
+    .sort((a, b) => (b.ultimo_valor_pedido ?? 0) - (a.ultimo_valor_pedido ?? 0))[0]
+    ?? null
+
   if (vista === "gestion" && clienteActivo) {
     return (
       <GestionCliente
@@ -419,29 +429,47 @@ export function MiRuta({ asesor }: MiRutaProps) {
               <Flag className="h-4 w-4 text-friendly" />
             </div>
             <div className="flex-1 min-w-0">
-              {hayOportunidadClara && sugerenciaPrioridad ? (
-                <>
-                  <p className="text-sm font-semibold text-white">
-                    Te faltan {clientesPendientesHoy.length} {clientesPendientesHoy.length === 1 ? 'cliente' : 'clientes'}
-                    {filtroRuta ? ` de la Ruta ${filtroRuta}` : ''} por visitar hoy
-                  </p>
-                  <p className="text-xs text-gray-300 mt-0.5">
-                    Prioridad sugerida: <span className="text-friendly font-medium">{sugerenciaPrioridad.nombre}</span>
-                    {' '}— {sugerenciaPrioridad.racha_sin_pedido} visitas seguidas sin pedido
-                  </p>
-                </>
-              ) : (
-                <p className="text-sm font-semibold text-white">
-                  Te faltan {clientesPendientesHoy.length} {clientesPendientesHoy.length === 1 ? 'cliente' : 'clientes'}
-                  {filtroRuta ? ` de la Ruta ${filtroRuta}` : ''} por visitar hoy
+              <p className="text-sm font-semibold text-white">
+                Te faltan {clientesPendientesHoy.length} {clientesPendientesHoy.length === 1 ? 'cliente' : 'clientes'}
+                {filtroRuta ? ` de la Ruta ${filtroRuta}` : ''} por visitar hoy
+              </p>
+
+              {/* Oportunidad de reactivación: quién lleva más visitas sin comprar */}
+              {hayOportunidadClara && sugerenciaPrioridad && (
+                <p className="text-xs text-gray-300 mt-1.5">
+                  Reactivar: <span className="text-friendly font-medium">{sugerenciaPrioridad.nombre}</span>
+                  {' '}— {sugerenciaPrioridad.racha_sin_pedido} visitas seguidas sin pedido
                 </p>
               )}
-              <button
-                onClick={() => setOrdenPor("racha_sin_pedido")}
-                className="mt-2 text-xs font-medium text-friendly hover:underline"
-              >
-                Ver ruta por prioridad →
-              </button>
+
+              {/* Cliente que sí compra y hoy sigue sin visitar — no se pierde */}
+              {clienteEfectivoPendiente && (
+                <p className="text-xs text-gray-300 mt-1.5">
+                  No perder: <span className="text-friendly font-medium">{clienteEfectivoPendiente.nombre}</span>
+                  {' '}— compró {clienteEfectivoPendiente.ultimo_valor_pedido
+                    ? `$${clienteEfectivoPendiente.ultimo_valor_pedido.toLocaleString('es-CO')}`
+                    : ''} la última vez y sigue pendiente
+                </p>
+              )}
+
+              <div className="flex items-center gap-4 mt-2">
+                {hayOportunidadClara && (
+                  <button
+                    onClick={() => setOrdenPor("racha_sin_pedido")}
+                    className="text-xs font-medium text-friendly hover:underline"
+                  >
+                    Ver por oportunidad →
+                  </button>
+                )}
+                {clienteEfectivoPendiente && (
+                  <button
+                    onClick={() => setOrdenPor("mayor_valor_anterior")}
+                    className="text-xs font-medium text-friendly hover:underline"
+                  >
+                    Ver por valor →
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
