@@ -278,10 +278,14 @@ export function MiRuta({ asesor }: MiRutaProps) {
   const visited = stats.validadas + stats.sospechosas
   const total   = stats.total
 
-  // Sugerencia de prioridad: entre los clientes pendientes de HOY, cuál es
-  // el de mayor oportunidad comercial (más visitas seguidas sin pedido) —
-  // no solo "cuántos te faltan" sino "a cuál te conviene ir primero".
-  const clientesPendientesHoy = todosClientes.filter(c => !c.visitado_en)
+  // Sugerencia de prioridad: entre los clientes pendientes de la RUTA
+  // seleccionada (no de todas las rutas del día), cuál es el de mayor
+  // oportunidad comercial (más visitas seguidas sin pedido) — no solo
+  // "cuántos te faltan" sino "a cuál te conviene ir primero".
+  const clientesRutaActual = todosClientes.filter(c =>
+    filtroRuta ? getRuta(c.nombre) === filtroRuta : true
+  )
+  const clientesPendientesHoy = clientesRutaActual.filter(c => !c.visitado_en)
   const sugerenciaPrioridad = clientesPendientesHoy.length > 0
     ? [...clientesPendientesHoy].sort(
         (a, b) => (b.racha_sin_pedido ?? 0) - (a.racha_sin_pedido ?? 0)
@@ -408,7 +412,7 @@ export function MiRuta({ asesor }: MiRutaProps) {
         </div>
       </div>
 
-      {stats.pendientes > 0 && (
+      {clientesPendientesHoy.length > 0 && (
         <div className="mx-4 mt-3 rounded-xl bg-friendly/10 border border-friendly/30 p-4">
           <div className="flex items-start gap-3">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-friendly/20">
@@ -418,7 +422,8 @@ export function MiRuta({ asesor }: MiRutaProps) {
               {hayOportunidadClara && sugerenciaPrioridad ? (
                 <>
                   <p className="text-sm font-semibold text-white">
-                    Te faltan {stats.pendientes} {stats.pendientes === 1 ? 'cliente' : 'clientes'} por visitar hoy
+                    Te faltan {clientesPendientesHoy.length} {clientesPendientesHoy.length === 1 ? 'cliente' : 'clientes'}
+                    {filtroRuta ? ` de la Ruta ${filtroRuta}` : ''} por visitar hoy
                   </p>
                   <p className="text-xs text-gray-300 mt-0.5">
                     Prioridad sugerida: <span className="text-friendly font-medium">{sugerenciaPrioridad.nombre}</span>
@@ -427,7 +432,8 @@ export function MiRuta({ asesor }: MiRutaProps) {
                 </>
               ) : (
                 <p className="text-sm font-semibold text-white">
-                  Te faltan {stats.pendientes} {stats.pendientes === 1 ? 'cliente' : 'clientes'} por visitar hoy
+                  Te faltan {clientesPendientesHoy.length} {clientesPendientesHoy.length === 1 ? 'cliente' : 'clientes'}
+                  {filtroRuta ? ` de la Ruta ${filtroRuta}` : ''} por visitar hoy
                 </p>
               )}
               <button

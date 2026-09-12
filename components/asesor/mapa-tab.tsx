@@ -340,7 +340,7 @@ export function MapaTab({ asesor }: MapaTabProps) {
               }
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-white truncate">{clienteSel.nombre}</p>
+              <p className="text-sm font-bold text-friendly truncate">{clienteSel.nombre}</p>
               <p className="text-xs text-gray-400 truncate">{clienteSel.direccion}</p>
               <div className="flex items-center gap-2 mt-1">
                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
