@@ -122,8 +122,8 @@ export function MapaTab({ asesor }: MapaTabProps) {
     const userIcon = L.divIcon({
       className: '',
       html: `<div style="position:relative;width:20px;height:20px">
-        <div style="position:absolute;inset:0;border-radius:50%;background:rgba(46,109,164,0.3);animation:ping 1.5s infinite"></div>
-        <div style="position:absolute;inset:3px;border-radius:50%;background:#2E6DA4;border:2px solid white;box-shadow:0 0 8px rgba(46,109,164,0.8)"></div>
+        <div style="position:absolute;inset:0;border-radius:50%;background:rgba(13,122,112,0.3);animation:ping 1.5s infinite"></div>
+        <div style="position:absolute;inset:3px;border-radius:50%;background:#0D7A70;border:2px solid white;box-shadow:0 0 8px rgba(13,122,112,0.8)"></div>
       </div>
       <style>@keyframes ping{0%,100%{transform:scale(1);opacity:0.7}50%{transform:scale(1.8);opacity:0}}</style>`,
       iconSize: [20, 20], iconAnchor: [10, 10],
@@ -226,15 +226,17 @@ export function MapaTab({ asesor }: MapaTabProps) {
 
       {/* ── Buscador ── */}
       <div className="relative px-3 py-2 border-b border-white/10 bg-dark-surface z-[1001]">
-        <div className="flex items-center gap-2 rounded-xl bg-dark-bg border border-white/10 px-3 py-2">
-          <Search className="h-4 w-4 text-gray-500 shrink-0" />
+        <div className={`flex items-center gap-2 rounded-xl bg-dark-bg border px-3 py-2 transition-colors ${
+          query ? 'border-friendly/50' : 'border-white/10'
+        }`}>
+          <Search className={`h-4 w-4 shrink-0 ${query ? 'text-friendly' : 'text-gray-500'}`} />
           <input
             type="text"
             value={query}
             onChange={e => { setQuery(e.target.value); setShowResults(true) }}
             onFocus={() => setShowResults(true)}
             placeholder="Buscar cliente o dirección..."
-            className="flex-1 bg-transparent text-sm text-white placeholder-gray-500 outline-none"
+            className="flex-1 bg-transparent text-sm text-friendly placeholder-gray-500 outline-none font-medium"
           />
           {query && (
             <button onClick={() => { setQuery(""); setShowResults(false) }}>
@@ -264,7 +266,7 @@ export function MapaTab({ asesor }: MapaTabProps) {
                   }
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white truncate">{c.nombre}</p>
+                  <p className="text-sm font-semibold text-friendly truncate">{c.nombre}</p>
                   <p className="text-xs text-gray-500 truncate">{c.direccion}</p>
                 </div>
                 {!c.lat && (

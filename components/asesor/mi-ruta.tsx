@@ -278,6 +278,17 @@ export function MiRuta({ asesor }: MiRutaProps) {
   const visited = stats.validadas + stats.sospechosas
   const total   = stats.total
 
+  // Sugerencia de prioridad: entre los clientes pendientes de HOY, cuál es
+  // el de mayor oportunidad comercial (más visitas seguidas sin pedido) —
+  // no solo "cuántos te faltan" sino "a cuál te conviene ir primero".
+  const clientesPendientesHoy = todosClientes.filter(c => !c.visitado_en)
+  const sugerenciaPrioridad = clientesPendientesHoy.length > 0
+    ? [...clientesPendientesHoy].sort(
+        (a, b) => (b.racha_sin_pedido ?? 0) - (a.racha_sin_pedido ?? 0)
+      )[0]
+    : null
+  const hayOportunidadClara = (sugerenciaPrioridad?.racha_sin_pedido ?? 0) >= 2
+
   if (vista === "gestion" && clienteActivo) {
     return (
       <GestionCliente
@@ -396,6 +407,39 @@ export function MiRuta({ asesor }: MiRutaProps) {
           </div>
         </div>
       </div>
+
+      {stats.pendientes > 0 && (
+        <div className="mx-4 mt-3 rounded-xl bg-friendly/10 border border-friendly/30 p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-friendly/20">
+              <Flag className="h-4 w-4 text-friendly" />
+            </div>
+            <div className="flex-1 min-w-0">
+              {hayOportunidadClara && sugerenciaPrioridad ? (
+                <>
+                  <p className="text-sm font-semibold text-white">
+                    Te faltan {stats.pendientes} {stats.pendientes === 1 ? 'cliente' : 'clientes'} por visitar hoy
+                  </p>
+                  <p className="text-xs text-gray-300 mt-0.5">
+                    Prioridad sugerida: <span className="text-friendly font-medium">{sugerenciaPrioridad.nombre}</span>
+                    {' '}— {sugerenciaPrioridad.racha_sin_pedido} visitas seguidas sin pedido
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm font-semibold text-white">
+                  Te faltan {stats.pendientes} {stats.pendientes === 1 ? 'cliente' : 'clientes'} por visitar hoy
+                </p>
+              )}
+              <button
+                onClick={() => setOrdenPor("racha_sin_pedido")}
+                className="mt-2 text-xs font-medium text-friendly hover:underline"
+              >
+                Ver ruta por prioridad →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {resumenData?.metricas?.pedidos?.efectivos > 0 && (
         <div className="mx-4 mt-3 rounded-xl bg-navy-accent/20 border border-navy-accent/30 p-4">

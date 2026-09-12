@@ -38,9 +38,10 @@ export async function GET(req: NextRequest) {
     const asesorIdQuery = searchParams.get('asesor_id');
     const asesor_id = ROLES_ADMIN.includes(auth.rol) && asesorIdQuery ? asesorIdQuery : auth.asesorId;
     const fecha = searchParams.get('fecha') || obtenerFechaColombia();
-    const fecha_inicio = searchParams.get('fecha_inicio');
-    const fecha_fin = searchParams.get('fecha_fin');
     const rango = searchParams.get('rango') === 'true';
+    // Sin fecha_inicio → histórico completo (desde el arranque de la operación).
+    const fecha_inicio = searchParams.get('fecha_inicio') || '2000-01-01';
+    const fecha_fin = searchParams.get('fecha_fin') || obtenerFechaColombia();
 
     console.log('📊 GET /api/resumen-dia:', { asesor_id, fecha, rango, fecha_inicio, fecha_fin });
 
@@ -56,7 +57,7 @@ export async function GET(req: NextRequest) {
     if (rango && fecha_inicio && fecha_fin) {
       // Resumen por rango de fechas
       const resumenPorDia = await sql`
-        SELECT 
+        SELECT
           DATE(timestamp AT TIME ZONE 'America/Bogota') as fecha,
           COUNT(*) as visitas,
           COUNT(*) FILTER (WHERE validada = true) as visitas_validadas,
@@ -71,7 +72,7 @@ export async function GET(req: NextRequest) {
 
       // Totales del periodo
       const totales = await sql`
-        SELECT 
+        SELECT
           COUNT(*) as visitas,
           COUNT(*) FILTER (WHERE hubo_pedido = true) as pedidos,
           COALESCE(SUM(valor_pedido), 0) as vendido
@@ -79,6 +80,12 @@ export async function GET(req: NextRequest) {
         WHERE asesor_id = ${asesor_id}
           AND DATE(timestamp AT TIME ZONE 'America/Bogota') BETWEEN ${fecha_inicio}::date AND ${fecha_fin}::date
       `;
+
+      const totalVisitasPeriodo = parseInt(totales[0]?.visitas || 0);
+      const totalPedidosPeriodo = parseInt(totales[0]?.pedidos || 0);
+      const efectividadPeriodo = totalVisitasPeriodo > 0
+        ? (totalPedidosPeriodo / totalVisitasPeriodo) * 100
+        : 0;
 
       return NextResponse.json({
         success: true,
@@ -88,19 +95,28 @@ export async function GET(req: NextRequest) {
           fin: fecha_fin
         },
         totales: {
-          visitas: parseInt(totales[0]?.visitas || 0),
-          pedidos: parseInt(totales[0]?.pedidos || 0),
+          visitas: totalVisitasPeriodo,
+          pedidos: totalPedidosPeriodo,
           vendido: parseFloat(totales[0]?.vendido || 0),
-          vendido_formato: `$${parseFloat(totales[0]?.vendido || 0).toLocaleString('es-CO')}`
+          vendido_formato: `$${parseFloat(totales[0]?.vendido || 0).toLocaleString('es-CO')}`,
+          efectividad: parseFloat(efectividadPeriodo.toFixed(1)),
+          efectividad_formato: `${efectividadPeriodo.toFixed(1)}%`
         },
-        por_dia: resumenPorDia.map(r => ({
-          fecha: r.fecha,
-          visitas: parseInt(r.visitas),
-          validadas: parseInt(r.visitas_validadas),
-          pedidos: parseInt(r.pedidos),
-          vendido: parseFloat(r.vendido),
-          vendido_formato: `$${parseFloat(r.vendido).toLocaleString('es-CO')}`
-        }))
+        por_dia: resumenPorDia.map(r => {
+          const visitasDia = parseInt(r.visitas);
+          const pedidosDia = parseInt(r.pedidos);
+          const efectividadDia = visitasDia > 0 ? (pedidosDia / visitasDia) * 100 : 0;
+          return {
+            fecha: r.fecha,
+            visitas: visitasDia,
+            validadas: parseInt(r.visitas_validadas),
+            pedidos: pedidosDia,
+            vendido: parseFloat(r.vendido),
+            vendido_formato: `$${parseFloat(r.vendido).toLocaleString('es-CO')}`,
+            efectividad: parseFloat(efectividadDia.toFixed(1)),
+            efectividad_formato: `${efectividadDia.toFixed(1)}%`
+          };
+        })
       });
     }
 

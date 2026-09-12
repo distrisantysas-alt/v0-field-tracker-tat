@@ -4,8 +4,8 @@
   "description": "Sistema de gestión de rutas y visitas en campo",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0f1e",
-  "theme_color": "#228b22",
+  "background_color": "#0F1F1D",
+  "theme_color": "#0F1F1D",
   "orientation": "portrait",
   "icons": [
     {

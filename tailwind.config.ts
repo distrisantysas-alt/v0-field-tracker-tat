@@ -65,15 +65,22 @@ const config: Config = {
           border: 'hsl(var(--sidebar-border))',
           ring: 'hsl(var(--sidebar-ring))',
         },
-        navy: '#1E3A5F',
-        'navy-accent': '#2E6DA4',
+        // Paleta "Océano en movimiento" — fondo verde-azulado profundo en vez
+        // de azul-acero (menos frío) + un único acento cálido (coral) para lo
+        // que necesita acción del asesor. success/warning/danger no cambian:
+        // el equipo ya los reconoce.
+        navy: '#1E4A44',
+        'navy-accent': '#0D7A70',
         success: '#1A7A4A',
         warning: '#D97706',
         danger: '#DC2626',
-        'dark-bg': '#0F1923',
-        'dark-surface': '#1A2A3A',
+        'dark-bg': '#0F1F1D',
+        'dark-surface': '#17302C',
         'light-bg': '#F0F4F8',
         'light-surface': '#FFFFFF',
+        // Acento cálido para resaltar texto/sugerencias sobre el fondo oscuro
+        // (búsqueda, prioridades) sin confundirse con success/warning/danger.
+        friendly: '#FF8B6B',
       },
       borderRadius: {
         lg: 'var(--radius)',

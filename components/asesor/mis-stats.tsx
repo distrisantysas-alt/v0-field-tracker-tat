@@ -24,7 +24,18 @@ interface DiaStats {
   pedidos: number;
   vendido: number;
   vendido_formato: string;
+  efectividad?: number;
+  efectividad_formato?: string;
 }
+
+type RangoPeriodo = 7 | 30 | 90 | 'todo';
+
+const RANGO_OPCIONES: { valor: RangoPeriodo; label: string }[] = [
+  { valor: 7, label: '7 días' },
+  { valor: 30, label: '30 días' },
+  { valor: 90, label: '90 días' },
+  { valor: 'todo', label: 'Todo' },
+];
 
 interface MisStatsProps {
   asesor: AsesorSession
@@ -48,6 +59,8 @@ export function MisStats({ asesor }: MisStatsProps) {
   const ASESOR_ID = asesor.id;
   const [mostrarVisitas, setMostrarVisitas] = useState(true);
   const [eliminandoId, setEliminandoId] = useState<string | null>(null);
+  const [rango, setRango] = useState<RangoPeriodo>(7);
+  const [filasVisibles, setFilasVisibles] = useState(30);
 
   const handleEliminarVisita = async (visitaId: string) => {
     if (!confirm('¿Eliminar este registro? El cliente volverá a pendiente.')) return
@@ -72,12 +85,16 @@ export function MisStats({ asesor }: MisStatsProps) {
     timeZone: 'America/Bogota'
   }).split(',')[0];
 
-  const hace7Dias = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)
-    .toLocaleString('en-CA', { timeZone: 'America/Bogota' })
-    .split(',')[0];
+  // fecha_inicio del periodo seleccionado ('todo' => sin límite inferior,
+  // el backend usa un piso fijo y trae el histórico completo)
+  const fechaInicioPeriodo = rango === 'todo'
+    ? ''
+    : new Date(Date.now() - (rango - 1) * 24 * 60 * 60 * 1000)
+        .toLocaleString('en-CA', { timeZone: 'America/Bogota' })
+        .split(',')[0];
 
   const { data, error } = useSWR(
-    `/api/resumen-dia?asesor_id=${ASESOR_ID}&fecha_inicio=${hace7Dias}&fecha_fin=${hoy}&rango=true`,
+    `/api/resumen-dia?asesor_id=${ASESOR_ID}&fecha_inicio=${fechaInicioPeriodo}&fecha_fin=${hoy}&rango=true`,
     fetcher,
     { refreshInterval: 60000 }
   );
@@ -166,19 +183,29 @@ export function MisStats({ asesor }: MisStatsProps) {
 
   const posicion = rankingReal.findIndex(r => r.esUsuario) + 1;
 
-  // Reporte por días — ordenado más reciente primero
-  const reporteDias: DiaStats[] = Array.from({ length: 7 }, (_, i) => {
-    const fecha = new Date(Date.now() - i * 24 * 60 * 60 * 1000)
-    const fechaStr = fecha.toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
-    const diaData = visitasPorDia.find(d => d.fecha?.toString().startsWith(fechaStr))
-    return {
-      fecha: fechaStr,
-      visitas:         diaData?.visitas  ?? 0,
-      pedidos:         diaData?.pedidos  ?? 0,
-      vendido:         diaData?.vendido  ?? 0,
-      vendido_formato: diaData?.vendido_formato ?? '$0',
-    }
-  })
+  // Reporte por días — ordenado más reciente primero.
+  // Para rangos cortos (7/30/90) se rellenan los días sin gestión con 0, para
+  // que se note el hueco. Para "todo" el histórico puede cubrir meses/años,
+  // así que se listan solo los días con datos (ya vienen ordenados DESC).
+  const reporteDias: DiaStats[] = rango === 'todo'
+    ? visitasPorDia
+    : Array.from({ length: rango }, (_, i) => {
+        const fecha = new Date(Date.now() - i * 24 * 60 * 60 * 1000)
+        const fechaStr = fecha.toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
+        const diaData = visitasPorDia.find(d => d.fecha?.toString().startsWith(fechaStr))
+        return {
+          fecha: fechaStr,
+          visitas:            diaData?.visitas  ?? 0,
+          pedidos:            diaData?.pedidos  ?? 0,
+          vendido:            diaData?.vendido  ?? 0,
+          vendido_formato:    diaData?.vendido_formato ?? '$0',
+          efectividad:        diaData?.efectividad ?? 0,
+          efectividad_formato: diaData?.efectividad_formato ?? '0.0%',
+        }
+      })
+
+  const reporteDiasVisible = reporteDias.slice(0, filasVisibles)
+  const hayMasFilas = reporteDias.length > filasVisibles
 
   // Visitas de hoy
   const visitasHoy: any[] = hoyData?.visitas ?? []
@@ -190,8 +217,23 @@ export function MisStats({ asesor }: MisStatsProps) {
       <div className="px-4 py-4 bg-dark-surface border-b border-white/10">
         <h1 className="text-xl font-bold text-white">Mis Estadísticas</h1>
         <p className="text-sm text-gray-400 mt-1">
-          {asesor.nombre}{asesor.zona ? ` · ${asesor.zona}` : ''} · Esta semana
+          {asesor.nombre}{asesor.zona ? ` · ${asesor.zona}` : ''}
         </p>
+        <div className="flex gap-2 mt-3">
+          {RANGO_OPCIONES.map((opcion) => (
+            <button
+              key={opcion.valor}
+              onClick={() => { setRango(opcion.valor); setFilasVisibles(30) }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                rango === opcion.valor
+                  ? 'bg-navy-accent text-white'
+                  : 'bg-white/5 text-gray-400 hover:bg-white/10'
+              }`}
+            >
+              {opcion.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Gráfico de visitas */}
@@ -243,7 +285,9 @@ export function MisStats({ asesor }: MisStatsProps) {
         <div className="bg-gradient-to-br from-navy to-navy-accent rounded-xl p-4 border border-white/10">
           <div className="flex items-center gap-2 mb-3">
             <TrendingUp className="h-5 w-5 text-success" />
-            <span className="text-sm text-white/80">Esta semana</span>
+            <span className="text-sm text-white/80">
+              {RANGO_OPCIONES.find(o => o.valor === rango)?.label}
+            </span>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -254,9 +298,13 @@ export function MisStats({ asesor }: MisStatsProps) {
               <p className="text-xs text-white/60">Pedidos</p>
               <p className="text-2xl font-bold text-success">{data.totales?.pedidos ?? 0}</p>
             </div>
-            <div className="col-span-2">
+            <div>
+              <p className="text-xs text-white/60">Efectividad</p>
+              <p className="text-2xl font-bold text-white">{data.totales?.efectividad_formato ?? '0.0%'}</p>
+            </div>
+            <div>
               <p className="text-xs text-white/60">Total vendido</p>
-              <p className="text-2xl font-bold text-white">{data.totales?.vendido_formato ?? '$0'}</p>
+              <p className="text-lg font-bold text-white">{data.totales?.vendido_formato ?? '$0'}</p>
             </div>
           </div>
         </div>
@@ -349,10 +397,15 @@ export function MisStats({ asesor }: MisStatsProps) {
 
       {/* ── REPORTE POR DÍAS ── */}
       <div className="px-4 mb-4">
-        <h2 className="text-white font-semibold mb-3">Detalle por día</h2>
+        <h2 className="text-white font-semibold mb-3">
+          Detalle por día
+          <span className="ml-2 text-xs font-normal text-gray-500">
+            ({reporteDias.length} {reporteDias.length === 1 ? 'día' : 'días'})
+          </span>
+        </h2>
         <div className="rounded-xl bg-dark-surface border border-white/10 overflow-hidden">
           {/* Header tabla */}
-          <div className="grid grid-cols-4 gap-2 px-4 py-2 border-b border-white/10 bg-white/5">
+          <div className="grid grid-cols-5 gap-2 px-4 py-2 border-b border-white/10 bg-white/5">
             <p className="text-[10px] text-gray-500 font-medium">Día</p>
             <p className="text-[10px] text-gray-500 font-medium text-center">
               <Eye className="h-3 w-3 inline mr-0.5" />Visitas
@@ -360,39 +413,59 @@ export function MisStats({ asesor }: MisStatsProps) {
             <p className="text-[10px] text-gray-500 font-medium text-center">
               <ShoppingBag className="h-3 w-3 inline mr-0.5" />Pedidos
             </p>
+            <p className="text-[10px] text-gray-500 font-medium text-center">Efect.</p>
             <p className="text-[10px] text-gray-500 font-medium text-right">
               <DollarSign className="h-3 w-3 inline mr-0.5" />Vendido
             </p>
           </div>
           {/* Filas */}
-          {reporteDias.map((dia, i) => (
-            <div
-              key={i}
-              className={`grid grid-cols-4 gap-2 px-4 py-3 border-b border-white/5 last:border-0 ${
-                esHoy(dia.fecha) ? 'bg-navy-accent/10' : ''
-              }`}
-            >
-              <div>
-                <p className={`text-xs font-medium ${esHoy(dia.fecha) ? 'text-navy-accent' : 'text-white'}`}>
-                  {esHoy(dia.fecha) ? 'Hoy' : formatFecha(dia.fecha)}
+          {reporteDiasVisible.length === 0 ? (
+            <div className="px-4 py-8 text-center">
+              <p className="text-sm text-gray-500">Sin gestiones registradas en este periodo</p>
+            </div>
+          ) : (
+            reporteDiasVisible.map((dia, i) => (
+              <div
+                key={i}
+                className={`grid grid-cols-5 gap-2 px-4 py-3 border-b border-white/5 last:border-0 ${
+                  esHoy(dia.fecha) ? 'bg-navy-accent/10' : ''
+                }`}
+              >
+                <div>
+                  <p className={`text-xs font-medium ${esHoy(dia.fecha) ? 'text-navy-accent' : 'text-white'}`}>
+                    {esHoy(dia.fecha) ? 'Hoy' : formatFecha(dia.fecha)}
+                  </p>
+                </div>
+                <p className={`text-sm font-bold text-center ${dia.visitas > 0 ? 'text-white' : 'text-gray-600'}`}>
+                  {dia.visitas}
+                </p>
+                <p className={`text-sm font-bold text-center ${dia.pedidos > 0 ? 'text-success' : 'text-gray-600'}`}>
+                  {dia.pedidos}
+                </p>
+                <p className={`text-xs font-bold text-center ${dia.visitas > 0 ? 'text-white' : 'text-gray-600'}`}>
+                  {dia.visitas > 0 ? dia.efectividad_formato : '—'}
+                </p>
+                <p className={`text-xs font-bold text-right ${dia.vendido > 0 ? 'text-white' : 'text-gray-600'}`}>
+                  {dia.vendido > 0 ? dia.vendido_formato : '—'}
                 </p>
               </div>
-              <p className={`text-sm font-bold text-center ${dia.visitas > 0 ? 'text-white' : 'text-gray-600'}`}>
-                {dia.visitas}
-              </p>
-              <p className={`text-sm font-bold text-center ${dia.pedidos > 0 ? 'text-success' : 'text-gray-600'}`}>
-                {dia.pedidos}
-              </p>
-              <p className={`text-xs font-bold text-right ${dia.vendido > 0 ? 'text-white' : 'text-gray-600'}`}>
-                {dia.vendido > 0 ? dia.vendido_formato : '—'}
-              </p>
-            </div>
-          ))}
+            ))
+          )}
+          {/* Cargar más */}
+          {hayMasFilas && (
+            <button
+              onClick={() => setFilasVisibles(v => v + 30)}
+              className="w-full py-3 text-xs font-medium text-navy-accent hover:bg-white/5 transition-colors border-b border-white/5"
+            >
+              Ver 30 días más
+            </button>
+          )}
           {/* Total */}
-          <div className="grid grid-cols-4 gap-2 px-4 py-3 bg-white/5 border-t border-white/10">
+          <div className="grid grid-cols-5 gap-2 px-4 py-3 bg-white/5 border-t border-white/10">
             <p className="text-xs font-bold text-white">Total</p>
             <p className="text-sm font-bold text-center text-white">{data.totales?.visitas ?? 0}</p>
             <p className="text-sm font-bold text-center text-success">{data.totales?.pedidos ?? 0}</p>
+            <p className="text-xs font-bold text-center text-white">{data.totales?.efectividad_formato ?? '0.0%'}</p>
             <p className="text-xs font-bold text-right text-white">{data.totales?.vendido_formato ?? '$0'}</p>
           </div>
         </div>
