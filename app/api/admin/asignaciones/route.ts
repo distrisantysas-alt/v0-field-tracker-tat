@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
       FROM asignaciones ag
       JOIN clientes c ON c.id = ag.cliente_id
       JOIN asesores a ON a.id = ag.asesor_id
-      ORDER BY ag.created_at DESC
+      ORDER BY ag.updated_at DESC
       LIMIT 300
     `
 

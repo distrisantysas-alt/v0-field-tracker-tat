@@ -55,11 +55,22 @@ function shortName(n: string) {
   return n.replace(/^\S+\s/, "").trim()
 }
 
+function tiempoRelativo(iso: string) {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const min = Math.floor(diffMs / 60000)
+  if (min < 1) return "recién"
+  if (min < 60) return `hace ${min} min`
+  const horas = Math.floor(min / 60)
+  if (horas < 24) return `hace ${horas}h`
+  return `hace ${Math.floor(horas / 24)}d`
+}
+
 export function SupervisorRutas() {
   const { data, isLoading, mutate } = useSWR<{ rutas: RutaGrupo[] }>("/api/admin/rutas", fetcher)
   const { data: historialData, mutate: mutateHistorial } = useSWR<{ asignaciones: any[] }>(
     "/api/admin/asignaciones",
-    fetcher
+    fetcher,
+    { refreshInterval: 15000 } // así el supervisor ve la gestión del asesor sin tener que refrescar
   )
 
   const [rutaSel, setRutaSel] = useState<string | null>(null)
@@ -67,7 +78,7 @@ export function SupervisorRutas() {
   const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set())
   const [enviando, setEnviando] = useState(false)
   const [mensaje, setMensaje] = useState<string | null>(null)
-  const [verHistorial, setVerHistorial] = useState(false)
+  const [verHistorial, setVerHistorial] = useState(true)
 
   const rutas = data?.rutas ?? []
 
@@ -243,10 +254,10 @@ export function SupervisorRutas() {
               <div key={a.id} className="flex items-center justify-between rounded-lg bg-dark-surface border border-white/10 px-3 py-2">
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-white truncate">{shortName(a.cliente_nombre)}</p>
-                  <p className="text-[10px] text-gray-500">Ruta {a.ruta} → {a.asesor_nombre}</p>
+                  <p className="text-[10px] text-gray-500">Ruta {a.ruta} → {a.asesor_nombre} · {tiempoRelativo(a.updated_at)}</p>
                 </div>
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${
-                  a.estado === "vendido" ? "bg-success/20 text-success" : "bg-white/10 text-gray-300"
+                  a.estado === "vendido" ? "bg-success/20 text-success" : a.estado === "pendiente" ? "bg-warning/15 text-warning" : "bg-white/10 text-gray-300"
                 }`}>
                   {a.estado === "vendido" && a.valor_pedido
                     ? `Vendido · $${Math.round(Number(a.valor_pedido)).toLocaleString("es-CO")}`

@@ -53,20 +53,30 @@ export function MisAsignaciones({ asesor }: { asesor: AsesorSession }) {
   const [ventaEnCurso, setVentaEnCurso] = useState<string | null>(null)
   const [valorVenta, setValorVenta] = useState("")
   const [errorVenta, setErrorVenta] = useState<string | null>(null)
+  const [errorSimple, setErrorSimple] = useState<{ id: string; msg: string } | null>(null)
+  const [confirmado, setConfirmado] = useState<string | null>(null)
 
   const asignaciones = data?.asignaciones ?? []
 
   async function cambiarEstadoSimple(id: string, estado: string) {
     setActualizando(id)
+    setErrorSimple(null)
     try {
-      await fetch(`/api/asignaciones/${id}`, {
+      const res = await fetch(`/api/asignaciones/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ estado }),
       })
-      mutate()
-    } catch {}
-    finally { setActualizando(null) }
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || `No se pudo actualizar (${res.status})`)
+      await mutate()
+      setConfirmado(id)
+      setTimeout(() => setConfirmado(c => (c === id ? null : c)), 2500)
+    } catch (e: any) {
+      setErrorSimple({ id, msg: e.message || "Error de conexión — intenta de nuevo" })
+    } finally {
+      setActualizando(null)
+    }
   }
 
   function abrirFormularioVenta(id: string) {
@@ -116,7 +126,9 @@ export function MisAsignaciones({ asesor }: { asesor: AsesorSession }) {
       })
 
       setVentaEnCurso(null)
-      mutate()
+      await mutate()
+      setConfirmado(a.id)
+      setTimeout(() => setConfirmado(c => (c === a.id ? null : c)), 2500)
     } catch (e: any) {
       setErrorVenta(e.message || "Necesitas activar el GPS para registrar la venta, igual que en una visita normal")
     } finally {
@@ -211,7 +223,14 @@ export function MisAsignaciones({ asesor }: { asesor: AsesorSession }) {
                 </div>
               </div>
             ) : (
-              <div className="flex gap-1.5 flex-wrap">
+              <div className="space-y-1.5">
+                {errorSimple && errorSimple.id === a.id && (
+                  <p className="text-[11px] text-danger">{errorSimple.msg}</p>
+                )}
+                {confirmado === a.id && (
+                  <p className="text-[11px] text-success">✓ Actualizado</p>
+                )}
+                <div className="flex gap-1.5 flex-wrap">
                 <button
                   onClick={() => abrirFormularioVenta(a.id)}
                   disabled={actualizando === a.id}
@@ -237,6 +256,7 @@ export function MisAsignaciones({ asesor }: { asesor: AsesorSession }) {
                     {actualizando === a.id && a.estado !== e.id ? <Loader2 className="h-3 w-3 animate-spin" /> : e.label}
                   </button>
                 ))}
+                </div>
               </div>
             )}
           </div>
