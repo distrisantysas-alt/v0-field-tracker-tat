@@ -245,8 +245,12 @@ export function SupervisorRutas() {
                   <p className="text-xs font-medium text-white truncate">{shortName(a.cliente_nombre)}</p>
                   <p className="text-[10px] text-gray-500">Ruta {a.ruta} → {a.asesor_nombre}</p>
                 </div>
-                <span className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold text-gray-300 capitalize">
-                  {a.estado.replace("_", " ")}
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${
+                  a.estado === "vendido" ? "bg-success/20 text-success" : "bg-white/10 text-gray-300"
+                }`}>
+                  {a.estado === "vendido" && a.valor_pedido
+                    ? `Vendido · $${Math.round(Number(a.valor_pedido)).toLocaleString("es-CO")}`
+                    : a.estado.replace("_", " ")}
                 </span>
               </div>
             ))}

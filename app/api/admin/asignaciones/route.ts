@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
 
     const rows = await sql`
       SELECT
-        ag.id, ag.cliente_id, ag.asesor_id, ag.ruta, ag.motivo, ag.estado, ag.nota,
+        ag.id, ag.cliente_id, ag.asesor_id, ag.ruta, ag.motivo, ag.estado, ag.nota, ag.valor_pedido,
         ag.created_at, ag.updated_at,
         c.nombre AS cliente_nombre, c.direccion,
         a.nombre AS asesor_nombre

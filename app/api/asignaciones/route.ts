@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
     const rows = await sql`
       SELECT
-        ag.id, ag.ruta, ag.motivo, ag.estado, ag.nota, ag.created_at, ag.updated_at,
+        ag.id, ag.ruta, ag.motivo, ag.estado, ag.nota, ag.valor_pedido, ag.created_at, ag.updated_at,
         c.id AS cliente_id, c.nombre AS cliente_nombre, c.direccion, c.lat, c.lng
       FROM asignaciones ag
       JOIN clientes c ON c.id = ag.cliente_id
