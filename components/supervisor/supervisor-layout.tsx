@@ -15,9 +15,10 @@ import useSWR from "swr"
 import {
   Users, AlertTriangle, FileText, ChevronLeft, ChevronRight,
   Loader2, Check, TrendingUp, Eye, ShoppingBag, DollarSign,
-  ImageIcon, Camera, Map, Copy, X, Flag, Activity, Navigation, Gauge, MapPinOff
+  ImageIcon, Camera, Map, Copy, X, Flag, Activity, Navigation, Gauge, MapPinOff, Route
 } from "lucide-react"
 import { fetcher } from "@/lib/fetcher"
+import { SupervisorRutas } from "./supervisor-rutas"
 
 const MapaAsesores = dynamic(() => import('./supervisor-mapa-asesores'), {
   ssr: false,
@@ -39,7 +40,7 @@ function formatFecha(fechaStr: string): string {
   return fecha.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
-type TabId = "equipo" | "mapa" | "alertas" | "seguimiento" | "reportes"
+type TabId = "equipo" | "rutas" | "mapa" | "alertas" | "seguimiento" | "reportes"
 
 interface SupervisorLayoutProps { onBack: () => void }
 
@@ -66,6 +67,7 @@ export function SupervisorLayout({ onBack }: SupervisorLayoutProps) {
 
   const tabs = [
     { id: "equipo"      as TabId, label: "Mi Equipo",   icon: Users         },
+    { id: "rutas"       as TabId, label: "Rutas",       icon: Route         },
     { id: "mapa"        as TabId, label: "Mapa",        icon: Map           },
     { id: "alertas"     as TabId, label: "Alertas",     icon: AlertTriangle },
     { id: "seguimiento" as TabId, label: "Seguimiento", icon: Activity      },
@@ -140,13 +142,14 @@ export function SupervisorLayout({ onBack }: SupervisorLayoutProps) {
 
       {/* Contenido */}
       <div className="flex-1 overflow-y-auto">
-        {isLoading && tab !== "mapa" && tab !== "alertas" && tab !== "seguimiento" ? (
+        {isLoading && tab !== "mapa" && tab !== "alertas" && tab !== "seguimiento" && tab !== "rutas" ? (
           <div className="flex h-64 items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-navy-accent" />
           </div>
         ) : (
           <>
             {tab === "equipo"      && <EquipoView      data={data} />}
+            {tab === "rutas"       && <SupervisorRutas />}
             {tab === "mapa"        && <MapaAsesores />}
             {tab === "alertas"     && <AlertasView     data={data} duplicados={duplicadosData?.reportes ?? []} />}
             {tab === "seguimiento" && <SeguimientoView />}
