@@ -13,12 +13,19 @@ export async function GET(req: NextRequest) {
     const auth = await requireSesion(req, ['supervisor', 'gerencia'])
     if (auth instanceof NextResponse) return auth
 
+    // "Vencida": el asesor ya no la ve (era de un día anterior) y sigue sin
+    // resolver — el supervisor necesita poder distinguirla de las que sí
+    // se gestionaron, para filtrarlas y decidir qué hacer con esos clientes.
     const rows = await sql`
       SELECT
         ag.id, ag.cliente_id, ag.asesor_id, ag.ruta, ag.motivo, ag.estado, ag.nota, ag.valor_pedido,
         ag.created_at, ag.updated_at,
         c.nombre AS cliente_nombre, c.direccion,
-        a.nombre AS asesor_nombre
+        a.nombre AS asesor_nombre,
+        (
+          ag.estado IN ('pendiente', 'en_gestion')
+          AND (ag.created_at AT TIME ZONE 'America/Bogota')::date < (NOW() AT TIME ZONE 'America/Bogota')::date
+        ) AS vencida
       FROM asignaciones ag
       JOIN clientes c ON c.id = ag.cliente_id
       JOIN asesores a ON a.id = ag.asesor_id

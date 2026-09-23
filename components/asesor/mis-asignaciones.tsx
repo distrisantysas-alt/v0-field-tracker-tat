@@ -156,8 +156,9 @@ export function MisAsignaciones({ asesor }: { asesor: AsesorSession }) {
   return (
     <div className="p-4 space-y-3">
       <p className="text-xs text-gray-500">
-        Clientes que tu supervisor priorizó para ti. Si te compró, marca <b>Vendido</b> y anota el valor —
-        igual que en una visita normal. Si solo lo gestionaste, usa las otras opciones.
+        Clientes que tu supervisor priorizó para ti <b>hoy</b>. Si te compró, marca <b>Vendido</b> y anota el valor —
+        igual que en una visita normal. Si solo lo gestionaste, usa las otras opciones. Lo de días anteriores que no
+        alcanzaste a gestionar ya no aparece aquí, pero tu supervisor lo sigue viendo.
       </p>
       {asignaciones.map((a: any) => {
         const mapsUrl = a.lat && a.lng

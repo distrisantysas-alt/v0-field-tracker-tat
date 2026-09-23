@@ -79,8 +79,20 @@ export function SupervisorRutas() {
   const [enviando, setEnviando] = useState(false)
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [verHistorial, setVerHistorial] = useState(true)
+  const [filtroHistorial, setFiltroHistorial] = useState<"todos" | "sin_gestionar" | "vendido" | "pendiente">("todos")
 
   const rutas = data?.rutas ?? []
+
+  const historialFiltrado = useMemo(() => {
+    const lista = historialData?.asignaciones ?? []
+    if (filtroHistorial === "todos") return lista
+    if (filtroHistorial === "sin_gestionar") return lista.filter((a: any) => a.vencida)
+    if (filtroHistorial === "vendido") return lista.filter((a: any) => a.estado === "vendido")
+    if (filtroHistorial === "pendiente") return lista.filter((a: any) => !a.vencida && (a.estado === "pendiente" || a.estado === "en_gestion"))
+    return lista
+  }, [historialData, filtroHistorial])
+
+  const sinGestionarCount = (historialData?.asignaciones ?? []).filter((a: any) => a.vencida).length
 
   const rutasFiltradas = useMemo(() => {
     const q = busqueda.trim().toUpperCase()
@@ -247,28 +259,62 @@ export function SupervisorRutas() {
           className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 hover:text-white"
         >
           <History className="h-3.5 w-3.5" /> {verHistorial ? "Ocultar" : "Ver"} historial de asignaciones ({historialData?.asignaciones?.length ?? 0})
+          {sinGestionarCount > 0 && (
+            <span className="rounded-full bg-danger/20 text-danger text-[10px] font-bold px-1.5 py-0.5">{sinGestionarCount} sin gestionar</span>
+          )}
         </button>
         {verHistorial && (
-          <div className="mt-2 space-y-1.5">
-            {(historialData?.asignaciones ?? []).slice(0, 50).map((a: any) => (
-              <div key={a.id} className="flex items-center justify-between rounded-lg bg-dark-surface border border-white/10 px-3 py-2">
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-white truncate">{shortName(a.cliente_nombre)}</p>
-                  <p className="text-[10px] text-gray-500">Ruta {a.ruta} → {a.asesor_nombre} · {tiempoRelativo(a.updated_at)}</p>
-                </div>
-                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${
-                  a.estado === "vendido" ? "bg-success/20 text-success" : a.estado === "pendiente" ? "bg-warning/15 text-warning" : "bg-white/10 text-gray-300"
+          <>
+            <div className="flex gap-1.5 mt-2 mb-1 overflow-x-auto">
+              {[
+                { id: "todos" as const, label: "Todos" },
+                { id: "sin_gestionar" as const, label: `Sin gestionar (${sinGestionarCount})` },
+                { id: "pendiente" as const, label: "Pendientes hoy" },
+                { id: "vendido" as const, label: "Vendidos" },
+              ].map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => setFiltroHistorial(f.id)}
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                    filtroHistorial === f.id
+                      ? f.id === "sin_gestionar" ? "bg-danger text-white" : "bg-navy-accent text-white"
+                      : "bg-white/5 text-gray-400 border border-white/10"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <div className="space-y-1.5">
+              {historialFiltrado.slice(0, 80).map((a: any) => (
+                <div key={a.id} className={`flex items-center justify-between rounded-lg border px-3 py-2 ${
+                  a.vencida ? "bg-danger/5 border-danger/20" : "bg-dark-surface border-white/10"
                 }`}>
-                  {a.estado === "vendido" && a.valor_pedido
-                    ? `Vendido · $${Math.round(Number(a.valor_pedido)).toLocaleString("es-CO")}`
-                    : a.estado.replace("_", " ")}
-                </span>
-              </div>
-            ))}
-            {(historialData?.asignaciones?.length ?? 0) === 0 && (
-              <p className="text-xs text-gray-500">Todavía no se ha enviado ningún cliente.</p>
-            )}
-          </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-white truncate">{shortName(a.cliente_nombre)}</p>
+                    <p className="text-[10px] text-gray-500">Ruta {a.ruta} → {a.asesor_nombre} · {tiempoRelativo(a.updated_at)}</p>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${
+                    a.vencida ? "bg-danger/20 text-danger"
+                    : a.estado === "vendido" ? "bg-success/20 text-success"
+                    : a.estado === "pendiente" ? "bg-warning/15 text-warning"
+                    : "bg-white/10 text-gray-300"
+                  }`}>
+                    {a.vencida
+                      ? "Sin gestionar"
+                      : a.estado === "vendido" && a.valor_pedido
+                      ? `Vendido · $${Math.round(Number(a.valor_pedido)).toLocaleString("es-CO")}`
+                      : a.estado.replace("_", " ")}
+                  </span>
+                </div>
+              ))}
+              {historialFiltrado.length === 0 && (
+                <p className="text-xs text-gray-500">
+                  {filtroHistorial === "todos" ? "Todavía no se ha enviado ningún cliente." : "Nada con este filtro."}
+                </p>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>

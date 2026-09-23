@@ -1,7 +1,12 @@
 // ============================================================================
 // app/api/asignaciones/route.ts
-// GET → las asignaciones que le llegaron al asesor logueado (las que su
-// supervisor le envió desde /admin, pendientes o en curso primero).
+// GET → las asignaciones que le llegaron al asesor logueado HOY (las que su
+// supervisor le envió desde /admin). Solo del día de hoy: el asesor cambia
+// de ruta/zona cada día, así que lo de días anteriores ya no lo puede
+// gestionar y no debe quedarle acumulado. Lo de días previos que quedó sin
+// resolver se sigue viendo en el panel del supervisor como "sin gestionar"
+// (ver /api/admin/asignaciones), nunca se pierde — solo deja de mostrársele
+// al asesor.
 // ============================================================================
 import { sql } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
@@ -20,6 +25,7 @@ export async function GET(req: NextRequest) {
       JOIN clientes c ON c.id = ag.cliente_id
       WHERE ag.asesor_id = ${auth.asesorId}
         AND ag.estado != 'depurado'
+        AND (ag.created_at AT TIME ZONE 'America/Bogota')::date = (NOW() AT TIME ZONE 'America/Bogota')::date
       ORDER BY
         CASE ag.estado WHEN 'pendiente' THEN 0 WHEN 'en_gestion' THEN 1 ELSE 2 END,
         ag.created_at DESC
