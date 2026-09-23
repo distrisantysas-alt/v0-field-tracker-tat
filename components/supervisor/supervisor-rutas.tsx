@@ -73,12 +73,12 @@ export function SupervisorRutas() {
     { refreshInterval: 15000 } // así el supervisor ve la gestión del asesor sin tener que refrescar
   )
 
+  const [vista, setVista] = useState<"enviar" | "gestiones">("enviar")
   const [rutaSel, setRutaSel] = useState<string | null>(null)
   const [busqueda, setBusqueda] = useState("")
   const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set())
   const [enviando, setEnviando] = useState(false)
   const [mensaje, setMensaje] = useState<string | null>(null)
-  const [verHistorial, setVerHistorial] = useState(true)
   const [filtroHistorial, setFiltroHistorial] = useState<"todos" | "sin_gestionar" | "vendido" | "pendiente">("todos")
 
   const rutas = data?.rutas ?? []
@@ -159,6 +159,85 @@ export function SupervisorRutas() {
         </p>
       </div>
 
+      {/* Selector de vista: enviar clientes vs. ver qué se gestionó */}
+      <div className="flex gap-2 px-4 pb-3">
+        <button
+          onClick={() => setVista("enviar")}
+          className={`flex-1 rounded-lg py-2 text-xs font-semibold transition-colors ${
+            vista === "enviar" ? "bg-navy-accent text-white" : "bg-dark-surface text-gray-400 border border-white/10"
+          }`}
+        >
+          Enviar clientes
+        </button>
+        <button
+          onClick={() => setVista("gestiones")}
+          className={`relative flex-1 rounded-lg py-2 text-xs font-semibold transition-colors ${
+            vista === "gestiones" ? "bg-navy-accent text-white" : "bg-dark-surface text-gray-400 border border-white/10"
+          }`}
+        >
+          <History className="h-3.5 w-3.5 inline mr-1 -mt-0.5" /> Gestiones realizadas
+          {sinGestionarCount > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-bold text-white">
+              {sinGestionarCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {vista === "gestiones" ? (
+        <div className="flex-1 overflow-y-auto px-4 pb-6">
+          <div className="flex gap-1.5 mb-3 overflow-x-auto">
+            {[
+              { id: "todos" as const, label: "Todos" },
+              { id: "sin_gestionar" as const, label: `Sin gestionar (${sinGestionarCount})` },
+              { id: "pendiente" as const, label: "Pendientes hoy" },
+              { id: "vendido" as const, label: "Vendidos" },
+            ].map(f => (
+              <button
+                key={f.id}
+                onClick={() => setFiltroHistorial(f.id)}
+                className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                  filtroHistorial === f.id
+                    ? f.id === "sin_gestionar" ? "bg-danger text-white" : "bg-navy-accent text-white"
+                    : "bg-white/5 text-gray-400 border border-white/10"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <div className="space-y-1.5">
+            {historialFiltrado.slice(0, 80).map((a: any) => (
+              <div key={a.id} className={`flex items-center justify-between rounded-lg border px-3 py-2.5 ${
+                a.vencida ? "bg-danger/5 border-danger/20" : "bg-dark-surface border-white/10"
+              }`}>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-white truncate">{shortName(a.cliente_nombre)}</p>
+                  <p className="text-[11px] text-gray-500">Ruta {a.ruta} → {a.asesor_nombre} · {tiempoRelativo(a.updated_at)}</p>
+                </div>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${
+                  a.vencida ? "bg-danger/20 text-danger"
+                  : a.estado === "vendido" ? "bg-success/20 text-success"
+                  : a.estado === "pendiente" ? "bg-warning/15 text-warning"
+                  : "bg-white/10 text-gray-300"
+                }`}>
+                  {a.vencida
+                    ? "Sin gestionar"
+                    : a.estado === "vendido" && a.valor_pedido
+                    ? `Vendido · $${Math.round(Number(a.valor_pedido)).toLocaleString("es-CO")}`
+                    : a.estado.replace("_", " ")}
+                </span>
+              </div>
+            ))}
+            {historialFiltrado.length === 0 && (
+              <p className="text-xs text-gray-500 py-8 text-center">
+                {filtroHistorial === "todos" ? "Todavía no se ha enviado ningún cliente." : "Nada con este filtro."}
+              </p>
+            )}
+          </div>
+        </div>
+      ) : (
+      <>
       {/* Buscar ruta */}
       <div className="px-4 pb-2">
         <div className="relative">
@@ -251,72 +330,8 @@ export function SupervisorRutas() {
           Enviar al asesor
         </button>
       </div>
-
-      {/* Historial (colapsable) */}
-      <div className="px-4 pt-2 pb-4">
-        <button
-          onClick={() => setVerHistorial(v => !v)}
-          className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 hover:text-white"
-        >
-          <History className="h-3.5 w-3.5" /> {verHistorial ? "Ocultar" : "Ver"} historial de asignaciones ({historialData?.asignaciones?.length ?? 0})
-          {sinGestionarCount > 0 && (
-            <span className="rounded-full bg-danger/20 text-danger text-[10px] font-bold px-1.5 py-0.5">{sinGestionarCount} sin gestionar</span>
-          )}
-        </button>
-        {verHistorial && (
-          <>
-            <div className="flex gap-1.5 mt-2 mb-1 overflow-x-auto">
-              {[
-                { id: "todos" as const, label: "Todos" },
-                { id: "sin_gestionar" as const, label: `Sin gestionar (${sinGestionarCount})` },
-                { id: "pendiente" as const, label: "Pendientes hoy" },
-                { id: "vendido" as const, label: "Vendidos" },
-              ].map(f => (
-                <button
-                  key={f.id}
-                  onClick={() => setFiltroHistorial(f.id)}
-                  className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                    filtroHistorial === f.id
-                      ? f.id === "sin_gestionar" ? "bg-danger text-white" : "bg-navy-accent text-white"
-                      : "bg-white/5 text-gray-400 border border-white/10"
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-            <div className="space-y-1.5">
-              {historialFiltrado.slice(0, 80).map((a: any) => (
-                <div key={a.id} className={`flex items-center justify-between rounded-lg border px-3 py-2 ${
-                  a.vencida ? "bg-danger/5 border-danger/20" : "bg-dark-surface border-white/10"
-                }`}>
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-white truncate">{shortName(a.cliente_nombre)}</p>
-                    <p className="text-[10px] text-gray-500">Ruta {a.ruta} → {a.asesor_nombre} · {tiempoRelativo(a.updated_at)}</p>
-                  </div>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${
-                    a.vencida ? "bg-danger/20 text-danger"
-                    : a.estado === "vendido" ? "bg-success/20 text-success"
-                    : a.estado === "pendiente" ? "bg-warning/15 text-warning"
-                    : "bg-white/10 text-gray-300"
-                  }`}>
-                    {a.vencida
-                      ? "Sin gestionar"
-                      : a.estado === "vendido" && a.valor_pedido
-                      ? `Vendido · $${Math.round(Number(a.valor_pedido)).toLocaleString("es-CO")}`
-                      : a.estado.replace("_", " ")}
-                  </span>
-                </div>
-              ))}
-              {historialFiltrado.length === 0 && (
-                <p className="text-xs text-gray-500">
-                  {filtroHistorial === "todos" ? "Todavía no se ha enviado ningún cliente." : "Nada con este filtro."}
-                </p>
-              )}
-            </div>
-          </>
-        )}
-      </div>
+      </>
+      )}
     </div>
   )
 }
