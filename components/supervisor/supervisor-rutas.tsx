@@ -28,6 +28,16 @@ type Cliente = {
   nuncaVisitado: boolean
   diasSinVisita: number | null
   motivo: "sin_visitar" | "sin_pedido" | "depurar" | "normal"
+  ultimaGestion: { estado: string; asesor: string; fecha: string } | null
+}
+
+const ESTADO_GESTION_LABEL: Record<string, string> = {
+  pendiente: "Pendiente",
+  en_gestion: "En gestión",
+  ubicado: "Ubicado",
+  activado: "Activado",
+  vendido: "Vendido",
+  depurado: "Depurado",
 }
 
 type RutaGrupo = {
@@ -308,6 +318,12 @@ export function SupervisorRutas() {
                   {c.direccion && (
                     <p className="flex items-center gap-1 text-[10px] text-gray-600 mt-0.5">
                       <MapPin className="h-2.5 w-2.5" /> {c.direccion}
+                    </p>
+                  )}
+                  {c.ultimaGestion && (
+                    <p className="text-[10px] text-navy-accent mt-0.5">
+                      ↳ Ya gestionado: {ESTADO_GESTION_LABEL[c.ultimaGestion.estado] ?? c.ultimaGestion.estado}
+                      {" "}por {c.ultimaGestion.asesor} · {tiempoRelativo(c.ultimaGestion.fecha)}
                     </p>
                   )}
                 </div>

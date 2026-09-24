@@ -19,18 +19,33 @@ export async function GET(req: NextRequest) {
     const auth = await requireSesion(req, ['supervisor', 'gerencia'])
     if (auth instanceof NextResponse) return auth
 
+    // La última gestión (de CUALQUIER asesor, no solo el actual) viaja con el
+    // cliente: así quien lo reciba después ve que ya se intentó algo antes,
+    // sin importar quién lo haya hecho.
     const rows = await sql`
       SELECT
         c.id, c.codigo, c.nombre, c.direccion, c.lat, c.lng,
         c.asesor_id, a.nombre AS asesor_nombre,
         COUNT(v.id) AS total_visitas,
         COUNT(v.id) FILTER (WHERE v.hubo_pedido) AS total_pedidos,
-        MAX(v.timestamp) AS ultima_visita
+        MAX(v.timestamp) AS ultima_visita,
+        ug.estado AS ultima_gestion_estado,
+        ug.asesor_gestion_nombre AS ultima_gestion_asesor,
+        ug.updated_at AS ultima_gestion_fecha
       FROM clientes c
       LEFT JOIN asesores a ON a.id = c.asesor_id
       LEFT JOIN visitas v ON v.cliente_id = c.id
+      LEFT JOIN LATERAL (
+        SELECT ag.estado, ag.updated_at, ag2.nombre AS asesor_gestion_nombre
+        FROM asignaciones ag
+        JOIN asesores ag2 ON ag2.id = ag.asesor_id
+        WHERE ag.cliente_id = c.id
+        ORDER BY ag.updated_at DESC
+        LIMIT 1
+      ) ug ON true
       WHERE c.activo = true
-      GROUP BY c.id, c.codigo, c.nombre, c.direccion, c.lat, c.lng, c.asesor_id, a.nombre
+      GROUP BY c.id, c.codigo, c.nombre, c.direccion, c.lat, c.lng, c.asesor_id, a.nombre,
+               ug.estado, ug.asesor_gestion_nombre, ug.updated_at
     `
 
     const rutas = new Map<string, any[]>()
@@ -58,6 +73,11 @@ export async function GET(req: NextRequest) {
         lat: row.lat, lng: row.lng,
         asesorId: row.asesor_id, asesorNombre: row.asesor_nombre,
         totalVisitas, totalPedidos, visitasSinPedido, nuncaVisitado, diasSinVisita, motivo,
+        ultimaGestion: row.ultima_gestion_estado ? {
+          estado: row.ultima_gestion_estado,
+          asesor: row.ultima_gestion_asesor,
+          fecha: row.ultima_gestion_fecha,
+        } : null,
       })
     }
 

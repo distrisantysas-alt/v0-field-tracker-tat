@@ -1,9 +1,12 @@
 // ============================================================================
 // app/api/admin/reasignar/route.ts
 // ✅ Reasigna clientes entre asesores
-// ✅ Al reasignar, copia automáticamente las coordenadas de la última visita
-//    a los clientes que tengan lat=0 o null — para que el nuevo asesor
-//    pueda verlos en el mapa y el checkin funcione correctamente
+// ✅ Al reasignar, refresca las coordenadas de TODOS los clientes movidos con
+//    el promedio de sus visitas históricas (si existen) — no solo cuando
+//    estaban en null/0 — para que el asesor nuevo siempre reciba el punto
+//    más real posible, no uno desactualizado.
+// ✅ Traspasa al asesor nuevo las asignaciones del supervisor que quedaron
+//    pendientes o en gestión con el asesor anterior — no se quedan huérfanas.
 // ============================================================================
 import { sql } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
@@ -114,9 +117,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── Copiar coordenadas de visitas a clientes sin GPS ────────────────────
-    // Para cada cliente reasignado que tenga lat=0 o null,
-    // toma el promedio de coordenadas capturadas en sus visitas históricas
+    // ── Refrescar coordenadas con el promedio de visitas históricas ─────────
+    // Antes solo se corregía si lat/lng estaban en null o 0. Ahora se
+    // refresca SIEMPRE que haya visitas con GPS real, sin importar el valor
+    // que ya tuviera guardado — así el asesor nuevo recibe la ubicación más
+    // real posible, no una desactualizada de quien tuvo el cliente antes.
     let coordenadasActualizadas = 0
     try {
       const resultado = await sql`
@@ -138,12 +143,31 @@ export async function POST(req: NextRequest) {
           GROUP BY cliente_id
         ) subq
         WHERE c.id = subq.cliente_id
-          AND (c.lat IS NULL OR c.lat = 0)
       `
-      coordenadasActualizadas = resultado.count ?? 0
+      coordenadasActualizadas = (resultado as any).count ?? 0
       console.log(`📍 Coordenadas actualizadas en ${coordenadasActualizadas} clientes reasignados`)
     } catch (e) {
       console.error('⚠️ Error actualizando coordenadas tras reasignación:', e)
+    }
+
+    // ── Traspasar asignaciones abiertas del supervisor al asesor nuevo ──────
+    // Lo que ya se resolvió (vendido/ubicado/activado/depurado) queda con el
+    // asesor que realmente lo gestionó, como registro histórico real. Lo que
+    // seguía pendiente o en gestión pasa al asesor nuevo para que no se
+    // pierda de vista ni quede huérfano.
+    let asignacionesTraspasadas = 0
+    try {
+      const resultadoAsig = await sql`
+        UPDATE asignaciones
+        SET asesor_id = ${asesor_destino_id}, updated_at = now()
+        WHERE cliente_id = ANY(${ids}::uuid[])
+          AND asesor_id = ${asesor_origen_id}
+          AND estado IN ('pendiente', 'en_gestion')
+      `
+      asignacionesTraspasadas = (resultadoAsig as any).count ?? 0
+      console.log(`📋 Asignaciones traspasadas al asesor nuevo: ${asignacionesTraspasadas}`)
+    } catch (e) {
+      console.error('⚠️ Error traspasando asignaciones tras reasignación:', e)
     }
 
     const clientesMovidos = ids.length
@@ -165,6 +189,7 @@ export async function POST(req: NextRequest) {
         a:                        destino[0]?.nombre,
         clientes_movidos:         clientesMovidos,
         coordenadas_actualizadas: coordenadasActualizadas,
+        asignaciones_traspasadas: asignacionesTraspasadas,
         rutas_reasignadas:        rutas?.length > 0 ? rutas : 'todas',
         asesor_desactivado:       desactivar_origen ?? false,
       }

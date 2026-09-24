@@ -17,12 +17,29 @@ export async function GET(req: NextRequest) {
     const auth = await requireSesion(req)
     if (auth instanceof NextResponse) return auth
 
+    // "gestion_previa": si otro asesor ya hizo algo con este cliente antes
+    // (por ejemplo, lo tuvo asignado en una ruta anterior), ese rastro viaja
+    // con el cliente y se lo mostramos a quien lo tenga ahora, sin importar
+    // quién lo haya hecho.
     const rows = await sql`
       SELECT
         ag.id, ag.ruta, ag.motivo, ag.estado, ag.nota, ag.valor_pedido, ag.created_at, ag.updated_at,
-        c.id AS cliente_id, c.nombre AS cliente_nombre, c.direccion, c.lat, c.lng
+        c.id AS cliente_id, c.nombre AS cliente_nombre, c.direccion, c.lat, c.lng,
+        gp.estado AS gestion_previa_estado,
+        gp.asesor_nombre AS gestion_previa_asesor,
+        gp.updated_at AS gestion_previa_fecha
       FROM asignaciones ag
       JOIN clientes c ON c.id = ag.cliente_id
+      LEFT JOIN LATERAL (
+        SELECT ag2.estado, ag2.updated_at, a2.nombre AS asesor_nombre
+        FROM asignaciones ag2
+        JOIN asesores a2 ON a2.id = ag2.asesor_id
+        WHERE ag2.cliente_id = ag.cliente_id
+          AND ag2.id != ag.id
+          AND ag2.asesor_id != ag.asesor_id
+        ORDER BY ag2.updated_at DESC
+        LIMIT 1
+      ) gp ON true
       WHERE ag.asesor_id = ${auth.asesorId}
         AND ag.estado != 'depurado'
         AND (ag.created_at AT TIME ZONE 'America/Bogota')::date = (NOW() AT TIME ZONE 'America/Bogota')::date

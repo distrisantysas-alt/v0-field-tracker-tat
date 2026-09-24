@@ -43,6 +43,16 @@ function shortName(n: string) {
   return n.replace(/^\S+\s/, "").trim()
 }
 
+function tiempoRelativo(iso: string) {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const min = Math.floor(diffMs / 60000)
+  if (min < 1) return "recién"
+  if (min < 60) return `hace ${min} min`
+  const horas = Math.floor(min / 60)
+  if (horas < 24) return `hace ${horas}h`
+  return `hace ${Math.floor(horas / 24)}d`
+}
+
 export function MisAsignaciones({ asesor }: { asesor: AsesorSession }) {
   const { data, isLoading, mutate } = useSWR<{ asignaciones: any[] }>(
     "/api/asignaciones",
@@ -188,6 +198,12 @@ export function MisAsignaciones({ asesor }: { asesor: AsesorSession }) {
                     cómo llegar
                   </a>
                 )}
+              </p>
+            )}
+
+            {a.gestion_previa_estado && (
+              <p className="text-[10px] text-navy-accent">
+                ↳ Ya gestionado antes: {a.gestion_previa_estado.replace("_", " ")} por {a.gestion_previa_asesor} · {tiempoRelativo(a.gestion_previa_fecha)}
               </p>
             )}
 
