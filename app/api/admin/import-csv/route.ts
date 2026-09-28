@@ -171,8 +171,11 @@ export async function POST(req: NextRequest) {
               telefono   = EXCLUDED.telefono,
               lat        = EXCLUDED.lat,
               lng        = EXCLUDED.lng,
-              asesor_id  = EXCLUDED.asesor_id,
-              activo     = true
+              asesor_id  = EXCLUDED.asesor_id
+              -- NO tocar "activo": si un asesor ya eliminó este cliente
+              -- (soft delete, activo=false), una reimportación del CSV no
+              -- debe resucitarlo. La limpieza del asesor tiene que quedar
+              -- firme sin importar cuántas veces se reasigne la ruta.
           `;
           clientesCreados++;
         } catch (e) {
