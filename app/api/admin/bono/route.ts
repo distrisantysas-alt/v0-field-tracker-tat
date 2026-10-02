@@ -39,6 +39,11 @@ export async function GET(req: NextRequest) {
       GROUP BY a.id, a.nombre
     `
 
+    const laborables = await sql`
+      SELECT asesor_id, dias FROM dias_laborables WHERE mes = ${inicio.slice(0, 7)}
+    `
+    const labPorAsesor = new Map<string, number>(laborables.map((d: any) => [d.asesor_id, d.dias]))
+
     const devoluciones = await sql`
       SELECT asesor_id, COUNT(*)::int AS devoluciones
       FROM devoluciones_pos
@@ -63,12 +68,13 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      periodo: { inicio, fin },
+      periodo: { inicio, fin, mes: inicio.slice(0, 7) },
       asesores: (actividad as any[]).map(a => ({
         asesor_id: a.asesor_id,
         asesor_nombre: a.asesor_nombre,
         visitas: a.visitas,
         diasConVisitas: a.dias_con_visitas,
+        diasLaborables: labPorAsesor.get(a.asesor_id) ?? null,
         pedidos: a.pedidos,
         devoluciones: devPorAsesor.get(a.asesor_id) ?? 0,
       })),

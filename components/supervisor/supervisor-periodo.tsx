@@ -49,7 +49,9 @@ function efectividadNeta(pedidos: number, devoluciones: number, visitas: number)
 // Escala del bono (se liquida con el mes completo). Se evalúa con valores exactos, no redondeados.
 //   $200.000: promedio >= 50 visitas/día y efectividad neta >= 45%
 //   $120.000: promedio >= 40 visitas/día y efectividad neta  > 40%
-// El promedio es visitas ÷ días en que el asesor registró visitas.
+// El promedio es visitas ÷ días laborables del asesor en el mes (los fija el supervisor, cada
+// asesor puede tener distintos). Si aún no se fijan, o el periodo no es un mes completo, se
+// usan los días en que el asesor registró visitas.
 const BONOS = [
   { monto: 200000, minProm: 50, minEfect: 45, estricto: false },
   { monto: 120000, minProm: 40, minEfect: 40, estricto: true },
@@ -114,8 +116,34 @@ export function SupervisorPeriodo() {
     fetcher
   )
 
-  const bonoDe = (r: { visitas: number; dias: number; pedidos: number; devoluciones: number }) =>
-    evaluarBono(promedioDia(r.visitas, r.dias), efectividadNeta(r.pedidos, r.devoluciones, r.visitas))
+  // El bono se liquida con el mes completo; en semanas o meses en curso es solo una referencia.
+  const finDeMes = (() => { const d = aFecha(inicio); return aTexto(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0))) })()
+  const mesCompleto = inicio.endsWith("-01") && fin >= finDeMes
+  const mes = inicio.slice(0, 7)
+
+  // Días sobre los que se promedian las visitas del asesor
+  const diasDe = (r: { diasConVisitas: number; diasLaborables: number | null }) =>
+    mesCompleto && r.diasLaborables ? r.diasLaborables : r.diasConVisitas
+  const bonoDe = (r: { visitas: number; diasConVisitas: number; diasLaborables: number | null; pedidos: number; devoluciones: number }) =>
+    evaluarBono(promedioDia(r.visitas, diasDe(r)), efectividadNeta(r.pedidos, r.devoluciones, r.visitas))
+
+  const [errorDias, setErrorDias] = useState<string | null>(null)
+  async function guardarDias(asesorId: string, valor: string) {
+    setErrorDias(null)
+    const dias = valor.trim() === "" ? null : Number(valor)
+    try {
+      const res = await fetch("/api/admin/dias-laborables", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ asesor_id: asesorId, mes, dias }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || "No se pudo guardar los días laborables")
+      mutate()
+    } catch (e: any) {
+      setErrorDias(e.message || "No se pudo guardar los días laborables")
+    }
+  }
 
   const { filas, totales } = useMemo(() => {
     const todos = (data?.asesores ?? []) as any[]
@@ -125,7 +153,8 @@ export function SupervisorPeriodo() {
         id: r.asesor_id as string,
         nombre: r.asesor_nombre as string,
         visitas: Number(r.visitas),
-        dias: Number(r.diasConVisitas) || 0,
+        diasConVisitas: Number(r.diasConVisitas) || 0,
+        diasLaborables: r.diasLaborables == null ? null : Number(r.diasLaborables),
         pedidos: Number(r.pedidos),
         devoluciones: Number(r.devoluciones),
       }))
@@ -166,9 +195,9 @@ export function SupervisorPeriodo() {
 
   function descargarCSV() {
     const filasCsv = [
-      ["Asesor", "Visitas", "Dias con visitas", "Promedio visitas/dia", "Pedidos efectivos", "Devoluciones", "Pedidos netos", "Efectividad neta %", "Bono"],
+      ["Asesor", "Visitas", "Dias laborables", "Promedio visitas/dia", "Pedidos efectivos", "Devoluciones", "Pedidos netos", "Efectividad neta %", "Bono"],
       ...filas.map(r => [
-        r.nombre, r.visitas, r.dias, promedioDia(r.visitas, r.dias).toFixed(1), r.pedidos, r.devoluciones, r.pedidos - r.devoluciones,
+        r.nombre, r.visitas, diasDe(r), promedioDia(r.visitas, diasDe(r)).toFixed(1), r.pedidos, r.devoluciones, r.pedidos - r.devoluciones,
         efectividadNeta(r.pedidos, r.devoluciones, r.visitas).toFixed(1),
         bonoDe(r).monto,
       ]),
@@ -189,9 +218,6 @@ export function SupervisorPeriodo() {
     URL.revokeObjectURL(url)
   }
 
-  // El bono se liquida con el mes completo; en semanas o meses en curso es solo una referencia.
-  const finDeMes = (() => { const d = aFecha(inicio); return aTexto(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0))) })()
-  const mesCompleto = inicio.endsWith("-01") && fin >= finDeMes
   const totalBonos = filas.reduce((s, r) => s + bonoDe(r).monto, 0)
 
   const sinDevoluciones = data && data.devolucionesCargadas === 0
@@ -287,7 +313,7 @@ export function SupervisorPeriodo() {
             <table className="w-full text-xs">
               <thead className="bg-white/[0.03]">
                 <tr>
-                  {["Asesor", "Visitas", "Prom/día", "Pedidos", "Devol.", "Netos", "Efectividad", "Bono"].map((t, i) => (
+                  {["Asesor", "Visitas", "Días lab.", "Prom/día", "Pedidos", "Devol.", "Netos", "Efectividad", "Bono"].map((t, i) => (
                     <th
                       key={t}
                       className={`px-3 py-2.5 text-[10px] font-medium uppercase tracking-wide text-gray-500 ${i === 0 ? "text-left" : "text-right"}`}
@@ -301,7 +327,7 @@ export function SupervisorPeriodo() {
                 {filas.map(r => {
                   const pct = efectividadNeta(r.pedidos, r.devoluciones, r.visitas)
                   const excede = r.devoluciones > r.pedidos
-                  const prom = promedioDia(r.visitas, r.dias)
+                  const prom = promedioDia(r.visitas, diasDe(r))
                   const bono = bonoDe(r)
                   return (
                     <tr key={r.id}>
@@ -314,7 +340,28 @@ export function SupervisorPeriodo() {
                         )}
                       </td>
                       <td className="px-3 py-2.5 text-right text-white">{r.visitas.toLocaleString("es-CO")}</td>
-                      <td className="px-3 py-2.5 text-right text-white" title={`${r.dias} días con visitas`}>{prom.toFixed(1)}</td>
+                      <td className="px-3 py-2.5 text-right">
+                        {mesCompleto ? (
+                          <input
+                            key={`${r.id}-${mes}-${r.diasLaborables ?? "x"}`}
+                            type="number"
+                            inputMode="numeric"
+                            min={1}
+                            max={31}
+                            defaultValue={r.diasLaborables ?? ""}
+                            placeholder={String(r.diasConVisitas)}
+                            onBlur={e => {
+                              const v = e.target.value
+                              if (v !== String(r.diasLaborables ?? "")) guardarDias(r.id, v)
+                            }}
+                            title={r.diasLaborables ? "Días laborables del mes" : `Sin definir: se usan los ${r.diasConVisitas} días con visitas`}
+                            className={`w-12 rounded-md border bg-dark-bg px-1.5 py-1 text-right text-xs text-white focus:border-navy-accent focus:outline-none ${r.diasLaborables ? "border-white/20" : "border-warning/50"}`}
+                          />
+                        ) : (
+                          <span className="text-gray-400" title="Días con visitas (el periodo no es un mes completo)">{r.diasConVisitas}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-white">{prom.toFixed(1)}</td>
                       <td className="px-3 py-2.5 text-right text-white">{r.pedidos.toLocaleString("es-CO")}</td>
                       <td className="px-3 py-2.5 text-right text-gray-400">−{r.devoluciones.toLocaleString("es-CO")}</td>
                       <td className="px-3 py-2.5 text-right text-white">{(r.pedidos - r.devoluciones).toLocaleString("es-CO")}</td>
@@ -336,6 +383,7 @@ export function SupervisorPeriodo() {
                   <td className="px-3 py-2.5 font-bold text-white">Total equipo</td>
                   <td className="px-3 py-2.5 text-right font-bold text-white">{totales.visitas.toLocaleString("es-CO")}</td>
                   <td className="px-3 py-2.5"></td>
+                  <td className="px-3 py-2.5"></td>
                   <td className="px-3 py-2.5 text-right font-bold text-white">{totales.pedidos.toLocaleString("es-CO")}</td>
                   <td className="px-3 py-2.5 text-right font-bold text-gray-300">−{totales.devoluciones.toLocaleString("es-CO")}</td>
                   <td className="px-3 py-2.5 text-right font-bold text-white">{(totales.pedidos - totales.devoluciones).toLocaleString("es-CO")}</td>
@@ -352,9 +400,13 @@ export function SupervisorPeriodo() {
         <p className="text-xs font-semibold text-white">Escala del bono</p>
         <p className="text-[11px] text-gray-400">$120.000 → promedio de 40 visitas/día o más y efectividad neta superior a 40%.</p>
         <p className="text-[11px] text-gray-400">$200.000 → promedio de 50 visitas/día o más y efectividad neta de 45% o más.</p>
-        <p className="text-[10px] text-gray-600">Promedio = visitas ÷ días en que el asesor registró visitas.</p>
+        <p className="text-[10px] text-gray-600">
+          Promedio = visitas del mes ÷ días laborables de cada asesor. Escribe los días laborables de cada uno en la columna "Días lab." (vacaciones, incapacidades, ingreso a mitad de mes).
+          Mientras esté vacío (borde naranja) se usan los días en que el asesor registró visitas.
+        </p>
+        {errorDias && <p className="text-[11px] text-danger">{errorDias}</p>}
         {rangoValido && !mesCompleto && (
-          <p className="text-[11px] text-warning">Este periodo no es un mes completo: el bono es una referencia, se liquida con el mes cerrado.</p>
+          <p className="text-[11px] text-warning">Este periodo no es un mes completo: el bono es una referencia y los días laborables solo se editan al ver el mes completo.</p>
         )}
       </div>
 
