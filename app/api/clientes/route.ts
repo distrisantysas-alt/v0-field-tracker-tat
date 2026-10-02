@@ -17,14 +17,46 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { nombre, direccion, telefono, lat, lng, codigo } = body
 
-    if (!nombre || !asesor_id) {
+    if (!nombre || typeof nombre !== 'string' || !nombre.trim() || !asesor_id) {
       return NextResponse.json(
-        { error: 'nombre y asesor_id son requeridos' },
+        { error: 'El nombre del cliente es requerido' },
+        { status: 400 }
+      )
+    }
+    if (nombre.trim().length > 150) {
+      return NextResponse.json(
+        { error: 'El nombre es demasiado largo (máximo 150 caracteres)' },
+        { status: 400 }
+      )
+    }
+    if (telefono && String(telefono).trim().length > 50) {
+      return NextResponse.json(
+        { error: 'El teléfono es demasiado largo (máximo 50 caracteres)' },
         { status: 400 }
       )
     }
 
-    const codigoFinal = codigo?.trim() || `NEW-${Date.now()}`
+    // lat/lng son NOT NULL en la tabla: sin GPS se guarda 0,0 (misma convención
+    // que el import CSV). Se usa Number.isFinite para no perder coordenadas válidas.
+    const latNum = Number(lat)
+    const lngNum = Number(lng)
+    const gpsValido =
+      lat != null && lng != null && lat !== '' && lng !== '' &&
+      Number.isFinite(latNum) && Number.isFinite(lngNum) &&
+      Math.abs(latNum) <= 90 && Math.abs(lngNum) <= 180
+    const latFinal = gpsValido ? latNum : 0
+    const lngFinal = gpsValido ? lngNum : 0
+
+    // codigo es varchar(20) UNIQUE: "NEW-" + timestamp + sufijo aleatorio evita colisiones
+    const codigoFinal =
+      codigo?.trim() ||
+      `NEW-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase()
+    if (codigoFinal.length > 20) {
+      return NextResponse.json(
+        { error: 'El código es demasiado largo (máximo 20 caracteres)' },
+        { status: 400 }
+      )
+    }
 
     // Crear el cliente asignado al asesor — aparece automáticamente
     // en su ruta gracias al UNION en /api/clientes-del-dia
@@ -38,8 +70,8 @@ export async function POST(req: NextRequest) {
         ${nombre.trim()},
         ${direccion?.trim() || null},
         ${telefono?.trim() || null},
-        ${lat || null},
-        ${lng || null},
+        ${latFinal},
+        ${lngFinal},
         50,
         ${asesor_id},
         true

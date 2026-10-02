@@ -1517,21 +1517,43 @@ function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClient
         ? `${ruta.trim().toUpperCase()} ${nombre.trim().toUpperCase()}`
         : nombre.trim().toUpperCase()
 
+      // Captura una posición fresca al crear (la del polling puede estar vacía si el GPS
+      // falló en silencio); si no hay ninguna, avisa en vez de crear el cliente sin ubicación.
+      let coords: { lat: number; lng: number } | null = null
+      if (usarGPS) {
+        try {
+          const pos = await obtenerPosicionGPS()
+          coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+        } catch {
+          coords = userLocation ? { lat: userLocation.lat, lng: userLocation.lng } : null
+        }
+        if (!coords) {
+          setError("No se pudo capturar el GPS. Activa la ubicación del celular e intenta de nuevo, o desmarca \"Capturar ubicación GPS\" para crearlo sin ubicación.")
+          return
+        }
+      }
+
       const payload = {
         nombre:    nombreFinal,
         direccion: direccion.trim() || null,
         telefono:  telefono.trim() || null,
         asesor_id: asesorId,
-        lat:       usarGPS && userLocation ? userLocation.lat : null,
-        lng:       usarGPS && userLocation ? userLocation.lng : null,
+        lat:       coords ? coords.lat : null,
+        lng:       coords ? coords.lng : null,
       }
       const res = await fetch('/api/clientes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error || "Error creando cliente"); return }
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const base = res.status === 401
+          ? "Tu sesión expiró. Cierra sesión y vuelve a ingresar."
+          : (data.error || "Error creando cliente")
+        setError(data.details && res.status >= 500 ? `${base}: ${data.details}` : base)
+        return
+      }
       onExito()
     } catch {
       setError("Error de conexión. Intenta nuevamente.")
@@ -1559,7 +1581,7 @@ function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClient
           <div className="flex gap-2">
             <input type="text" value={ruta} onChange={e => setRuta(e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase())} placeholder="Ruta" maxLength={4} inputMode="text" autoComplete="off" autoCorrect="off" autoCapitalize="characters" spellCheck={false} pattern="[A-Za-z0-9]*"
               className="w-20 rounded-xl border border-white/10 bg-dark-surface px-3 py-3 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none text-center font-mono" />
-            <input type="text" value={nombre} onChange={e => { setNombre(e.target.value); setError("") }} placeholder="Nombre del cliente" autoFocus
+            <input type="text" value={nombre} onChange={e => { setNombre(e.target.value); setError("") }} placeholder="Nombre del cliente" maxLength={140} autoFocus
               className={`flex-1 rounded-xl border bg-dark-surface px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none transition-all ${error && !nombre ? "border-danger" : "border-white/10 focus:border-navy-accent"}`} />
           </div>
           {(ruta || nombre) && (
@@ -1575,7 +1597,7 @@ function NuevoCliente({ asesorId, userLocation, onVolver, onExito }: NuevoClient
         </div>
         <div>
           <label className="block text-xs text-gray-400 mb-1">Teléfono</label>
-          <input type="tel" value={telefono} onChange={e => setTelefono(e.target.value)} placeholder="Ej: 3001234567" inputMode="tel"
+          <input type="tel" value={telefono} onChange={e => setTelefono(e.target.value)} placeholder="Ej: 3001234567" inputMode="tel" maxLength={50}
             className="w-full rounded-xl border border-white/10 bg-dark-surface px-4 py-3 text-sm text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none" />
         </div>
         <div className={`rounded-xl border p-4 ${usarGPS && userLocation ? "border-success/30 bg-success/10" : "border-white/10 bg-dark-surface"}`}>
