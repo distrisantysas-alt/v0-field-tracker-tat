@@ -46,6 +46,34 @@ function rangoDe(filtro: Exclude<Filtro, "rango">): { inicio: string; fin: strin
 function efectividadNeta(pedidos: number, devoluciones: number, visitas: number): number {
   return visitas > 0 ? (Math.max(0, pedidos - devoluciones) / visitas) * 100 : 0
 }
+// Escala del bono (se liquida con el mes completo). Se evalúa con valores exactos, no redondeados.
+//   $200.000: promedio >= 50 visitas/día y efectividad neta >= 45%
+//   $120.000: promedio >= 40 visitas/día y efectividad neta  > 40%
+// El promedio es visitas ÷ días en que el asesor registró visitas.
+const BONOS = [
+  { monto: 200000, minProm: 50, minEfect: 45, estricto: false },
+  { monto: 120000, minProm: 40, minEfect: 40, estricto: true },
+]
+type Bono = (typeof BONOS)[number]
+const cumpleProm = (prom: number, b: Bono) => prom >= b.minProm
+const cumpleEfect = (pct: number, b: Bono) => (b.estricto ? pct > b.minEfect : pct >= b.minEfect)
+
+function evaluarBono(prom: number, pct: number): { monto: number; falta: string | null } {
+  const ganado = BONOS.find(b => cumpleProm(prom, b) && cumpleEfect(pct, b))
+  if (ganado) return { monto: ganado.monto, falta: ganado === BONOS[0] ? null : faltaPara(BONOS[0], prom, pct) }
+  return { monto: 0, falta: faltaPara(BONOS[BONOS.length - 1], prom, pct) }
+}
+function faltaPara(b: Bono, prom: number, pct: number): string | null {
+  const partes: string[] = []
+  if (!cumpleProm(prom, b)) partes.push(`${(b.minProm - prom).toFixed(1)} visitas/día`)
+  if (!cumpleEfect(pct, b)) partes.push(`${Math.max(0.1, b.minEfect - pct).toFixed(1)} pts de efectividad`)
+  return partes.length ? `Faltan ${partes.join(" y ")} para $${b.monto / 1000} mil` : null
+}
+const pesos = (n: number) => "$" + n.toLocaleString("es-CO")
+function promedioDia(visitas: number, dias: number): number {
+  return dias > 0 ? visitas / dias : 0
+}
+
 function colorEfectividad(pct: number): string {
   return pct >= 50 ? "text-success" : pct >= 25 ? "text-warning" : "text-danger"
 }
@@ -86,6 +114,9 @@ export function SupervisorPeriodo() {
     fetcher
   )
 
+  const bonoDe = (r: { visitas: number; dias: number; pedidos: number; devoluciones: number }) =>
+    evaluarBono(promedioDia(r.visitas, r.dias), efectividadNeta(r.pedidos, r.devoluciones, r.visitas))
+
   const { filas, totales } = useMemo(() => {
     const todos = (data?.asesores ?? []) as any[]
     const activos = todos
@@ -94,6 +125,7 @@ export function SupervisorPeriodo() {
         id: r.asesor_id as string,
         nombre: r.asesor_nombre as string,
         visitas: Number(r.visitas),
+        dias: Number(r.diasConVisitas) || 0,
         pedidos: Number(r.pedidos),
         devoluciones: Number(r.devoluciones),
       }))
@@ -134,15 +166,17 @@ export function SupervisorPeriodo() {
 
   function descargarCSV() {
     const filasCsv = [
-      ["Asesor", "Visitas", "Pedidos efectivos", "Devoluciones", "Pedidos netos", "Efectividad neta %"],
+      ["Asesor", "Visitas", "Dias con visitas", "Promedio visitas/dia", "Pedidos efectivos", "Devoluciones", "Pedidos netos", "Efectividad neta %", "Bono"],
       ...filas.map(r => [
-        r.nombre, r.visitas, r.pedidos, r.devoluciones, r.pedidos - r.devoluciones,
+        r.nombre, r.visitas, r.dias, promedioDia(r.visitas, r.dias).toFixed(1), r.pedidos, r.devoluciones, r.pedidos - r.devoluciones,
         efectividadNeta(r.pedidos, r.devoluciones, r.visitas).toFixed(1),
+        bonoDe(r).monto,
       ]),
       [
-        "TOTAL EQUIPO", totales.visitas, totales.pedidos, totales.devoluciones,
+        "TOTAL EQUIPO", totales.visitas, "", "", totales.pedidos, totales.devoluciones,
         totales.pedidos - totales.devoluciones,
         efectividadNeta(totales.pedidos, totales.devoluciones, totales.visitas).toFixed(1),
+        filas.reduce((s, r) => s + bonoDe(r).monto, 0),
       ],
     ]
     const contenido = filasCsv.map(f => f.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n")
@@ -154,6 +188,11 @@ export function SupervisorPeriodo() {
     a.click()
     URL.revokeObjectURL(url)
   }
+
+  // El bono se liquida con el mes completo; en semanas o meses en curso es solo una referencia.
+  const finDeMes = (() => { const d = aFecha(inicio); return aTexto(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0))) })()
+  const mesCompleto = inicio.endsWith("-01") && fin >= finDeMes
+  const totalBonos = filas.reduce((s, r) => s + bonoDe(r).monto, 0)
 
   const sinDevoluciones = data && data.devolucionesCargadas === 0
   const cargadasHasta: string | null = data?.devolucionesHasta ? String(data.devolucionesHasta).slice(0, 10) : null
@@ -248,7 +287,7 @@ export function SupervisorPeriodo() {
             <table className="w-full text-xs">
               <thead className="bg-white/[0.03]">
                 <tr>
-                  {["Asesor", "Visitas", "Pedidos", "Devol.", "Netos", "Efectividad"].map((t, i) => (
+                  {["Asesor", "Visitas", "Prom/día", "Pedidos", "Devol.", "Netos", "Efectividad", "Bono"].map((t, i) => (
                     <th
                       key={t}
                       className={`px-3 py-2.5 text-[10px] font-medium uppercase tracking-wide text-gray-500 ${i === 0 ? "text-left" : "text-right"}`}
@@ -262,6 +301,8 @@ export function SupervisorPeriodo() {
                 {filas.map(r => {
                   const pct = efectividadNeta(r.pedidos, r.devoluciones, r.visitas)
                   const excede = r.devoluciones > r.pedidos
+                  const prom = promedioDia(r.visitas, r.dias)
+                  const bono = bonoDe(r)
                   return (
                     <tr key={r.id}>
                       <td className="px-3 py-2.5 font-medium text-white whitespace-nowrap">
@@ -273,10 +314,19 @@ export function SupervisorPeriodo() {
                         )}
                       </td>
                       <td className="px-3 py-2.5 text-right text-white">{r.visitas.toLocaleString("es-CO")}</td>
+                      <td className="px-3 py-2.5 text-right text-white" title={`${r.dias} días con visitas`}>{prom.toFixed(1)}</td>
                       <td className="px-3 py-2.5 text-right text-white">{r.pedidos.toLocaleString("es-CO")}</td>
                       <td className="px-3 py-2.5 text-right text-gray-400">−{r.devoluciones.toLocaleString("es-CO")}</td>
                       <td className="px-3 py-2.5 text-right text-white">{(r.pedidos - r.devoluciones).toLocaleString("es-CO")}</td>
                       <td className={`px-3 py-2.5 text-right font-semibold ${colorEfectividad(pct)}`}>{pct.toFixed(1)}%</td>
+                      <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                        {bono.monto > 0 ? (
+                          <span className="font-bold text-success">{pesos(bono.monto)}</span>
+                        ) : (
+                          <span className="text-gray-500">—</span>
+                        )}
+                        {bono.falta && <span className="block text-[9px] font-normal text-gray-500">{bono.falta}</span>}
+                      </td>
                     </tr>
                   )
                 })}
@@ -285,16 +335,28 @@ export function SupervisorPeriodo() {
                 <tr>
                   <td className="px-3 py-2.5 font-bold text-white">Total equipo</td>
                   <td className="px-3 py-2.5 text-right font-bold text-white">{totales.visitas.toLocaleString("es-CO")}</td>
+                  <td className="px-3 py-2.5"></td>
                   <td className="px-3 py-2.5 text-right font-bold text-white">{totales.pedidos.toLocaleString("es-CO")}</td>
                   <td className="px-3 py-2.5 text-right font-bold text-gray-300">−{totales.devoluciones.toLocaleString("es-CO")}</td>
                   <td className="px-3 py-2.5 text-right font-bold text-white">{(totales.pedidos - totales.devoluciones).toLocaleString("es-CO")}</td>
                   <td className={`px-3 py-2.5 text-right font-bold ${colorEfectividad(efectividadEquipo)}`}>{efectividadEquipo.toFixed(1)}%</td>
+                  <td className="px-3 py-2.5 text-right font-bold text-success whitespace-nowrap">{pesos(totalBonos)}</td>
                 </tr>
               </tfoot>
             </table>
           )}
         </div>
       )}
+
+      <div className="rounded-xl border border-white/10 bg-dark-surface p-3 space-y-1">
+        <p className="text-xs font-semibold text-white">Escala del bono</p>
+        <p className="text-[11px] text-gray-400">$120.000 → promedio de 40 visitas/día o más y efectividad neta superior a 40%.</p>
+        <p className="text-[11px] text-gray-400">$200.000 → promedio de 50 visitas/día o más y efectividad neta de 45% o más.</p>
+        <p className="text-[10px] text-gray-600">Promedio = visitas ÷ días en que el asesor registró visitas.</p>
+        {rangoValido && !mesCompleto && (
+          <p className="text-[11px] text-warning">Este periodo no es un mes completo: el bono es una referencia, se liquida con el mes cerrado.</p>
+        )}
+      </div>
 
       <p className="text-[10px] text-gray-600">
         Efectividad = (pedidos − devoluciones) ÷ visitas. Las visitas y los pedidos vienen de esta app; las devoluciones, del POS.

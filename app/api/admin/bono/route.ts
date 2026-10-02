@@ -3,6 +3,7 @@
 // GET → por asesor y periodo: visitas y pedidos (de esta app) + devoluciones
 // (del POS, cargadas con /api/admin/devoluciones). La efectividad neta que
 // activa el bono es: (pedidos - devoluciones) / visitas.
+// diasConVisitas sirve para el promedio diario de visitas (el otro requisito).
 // Parametros: fecha_inicio, fecha_fin (AAAA-MM-DD)
 // ============================================================================
 import { sql } from '@/lib/db'
@@ -28,6 +29,7 @@ export async function GET(req: NextRequest) {
         a.id AS asesor_id,
         a.nombre AS asesor_nombre,
         COUNT(v.id)::int AS visitas,
+        COUNT(DISTINCT DATE(v.timestamp AT TIME ZONE 'America/Bogota'))::int AS dias_con_visitas,
         COUNT(v.id) FILTER (WHERE v.hubo_pedido = true)::int AS pedidos
       FROM asesores a
       LEFT JOIN visitas v
@@ -66,6 +68,7 @@ export async function GET(req: NextRequest) {
         asesor_id: a.asesor_id,
         asesor_nombre: a.asesor_nombre,
         visitas: a.visitas,
+        diasConVisitas: a.dias_con_visitas,
         pedidos: a.pedidos,
         devoluciones: devPorAsesor.get(a.asesor_id) ?? 0,
       })),
