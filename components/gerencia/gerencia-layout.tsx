@@ -13,10 +13,12 @@ import {
   Check, TrendingUp, DollarSign, Search, X,
   UserPlus, RefreshCw, Edit2, UserX, ArrowRight,
   MapPin, CheckCircle, AlertCircle, FileUp, Share2,
-  ChevronUp, ChevronDown, Download, UserCog
+  ChevronUp, ChevronDown, Download, UserCog, Target, Award
 } from "lucide-react"
 import { fetcher } from "@/lib/fetcher"
 import { TabUsuarios } from "./tab-usuarios"
+import { TabMetas } from "./tab-metas"
+import { TabIncentivos } from "./tab-incentivos"
 
 function fechaColombia() {
   return new Date().toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
@@ -41,7 +43,7 @@ function cop(n: number): string {
   return '$' + Math.round(n).toLocaleString('es-CO')
 }
 
-type Tab = "dashboard" | "equipo" | "zonas" | "asesores" | "usuarios" | "informes" | "importar" | "compartir"
+type Tab = "dashboard" | "equipo" | "zonas" | "asesores" | "usuarios" | "metas" | "incentivos" | "informes" | "importar" | "compartir"
 
 interface GerenciaLayoutProps { onBack: () => void }
 
@@ -56,6 +58,8 @@ export function GerenciaLayout({ onBack }: GerenciaLayoutProps) {
     { id: "zonas"     as Tab, label: "Zonas",       icon: Map        },
     { id: "asesores"  as Tab, label: "Asesores",    icon: Settings   },
     { id: "usuarios"  as Tab, label: "Usuarios",    icon: UserCog    },
+    { id: "metas"     as Tab, label: "Metas",       icon: Target     },
+    { id: "incentivos" as Tab, label: "Incentivos", icon: Award      },
     { id: "informes"  as Tab, label: "Informes",    icon: TrendingUp },
     { id: "importar"  as Tab, label: "Importar",    icon: Upload     },
     { id: "compartir" as Tab, label: "Compartir",   icon: Share2     },
@@ -104,6 +108,8 @@ export function GerenciaLayout({ onBack }: GerenciaLayoutProps) {
         {tab === "zonas"     && <TabZonas     fecha={fecha} />}
         {tab === "asesores"  && <TabAsesores  />}
         {tab === "usuarios"  && <TabUsuarios  />}
+        {tab === "metas"     && <TabMetas     />}
+        {tab === "incentivos" && <TabIncentivos />}
         {tab === "informes"  && <TabInformes  />}
         {tab === "importar"  && <TabImportar  />}
         {tab === "compartir" && <TabCompartir />}

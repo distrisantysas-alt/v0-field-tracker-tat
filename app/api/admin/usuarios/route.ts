@@ -8,31 +8,11 @@
 // ============================================================================
 import { sql } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
-import { requireSesion } from '@/lib/auth'
+import { exigirMaestro, auditar, UUID } from '@/lib/admin-auth'
 import { claveValida, claveTemporal, hashClave, CLAVE_MIN } from '@/lib/clave'
 
 const ROLES_CREABLES = ['asesor', 'supervisor', 'entregador'] as const
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-type Maestro = { asesorId: string; nombre: string }
-
-async function exigirMaestro(req: NextRequest): Promise<Maestro | NextResponse> {
-  const auth = await requireSesion(req, ['gerencia'])
-  if (auth instanceof NextResponse) return auth
-  const f = await sql`SELECT nombre FROM asesores WHERE id = ${auth.asesorId}::uuid AND es_admin_maestro = true AND activo = true`
-  if (f.length === 0) {
-    return NextResponse.json({ error: 'Solo el administrador maestro puede gestionar usuarios' }, { status: 403 })
-  }
-  return { asesorId: auth.asesorId, nombre: f[0].nombre }
-}
-
-async function auditar(actor: Maestro, accion: string, objetivoId: string | null, detalle: object) {
-  await sql`
-    INSERT INTO auditoria_admin (actor_id, actor_nombre, accion, objetivo_id, detalle)
-    VALUES (${actor.asesorId}::uuid, ${actor.nombre}, ${accion}, ${objetivoId}::uuid, ${JSON.stringify(detalle)}::jsonb)
-  `
-}
+const EMAIL = /^[^s@]+@[^s@]+.[^s@]+$/
 
 function limpiarTexto(v: unknown, max: number): string | null {
   if (typeof v !== 'string') return null
