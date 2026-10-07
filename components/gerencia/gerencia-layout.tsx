@@ -13,9 +13,10 @@ import {
   Check, TrendingUp, DollarSign, Search, X,
   UserPlus, RefreshCw, Edit2, UserX, ArrowRight,
   MapPin, CheckCircle, AlertCircle, FileUp, Share2,
-  ChevronUp, ChevronDown, Download
+  ChevronUp, ChevronDown, Download, UserCog
 } from "lucide-react"
 import { fetcher } from "@/lib/fetcher"
+import { TabUsuarios } from "./tab-usuarios"
 
 function fechaColombia() {
   return new Date().toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
@@ -40,7 +41,7 @@ function cop(n: number): string {
   return '$' + Math.round(n).toLocaleString('es-CO')
 }
 
-type Tab = "dashboard" | "equipo" | "zonas" | "asesores" | "informes" | "importar" | "compartir"
+type Tab = "dashboard" | "equipo" | "zonas" | "asesores" | "usuarios" | "informes" | "importar" | "compartir"
 
 interface GerenciaLayoutProps { onBack: () => void }
 
@@ -54,6 +55,7 @@ export function GerenciaLayout({ onBack }: GerenciaLayoutProps) {
     { id: "equipo"    as Tab, label: "Equipo",      icon: Users      },
     { id: "zonas"     as Tab, label: "Zonas",       icon: Map        },
     { id: "asesores"  as Tab, label: "Asesores",    icon: Settings   },
+    { id: "usuarios"  as Tab, label: "Usuarios",    icon: UserCog    },
     { id: "informes"  as Tab, label: "Informes",    icon: TrendingUp },
     { id: "importar"  as Tab, label: "Importar",    icon: Upload     },
     { id: "compartir" as Tab, label: "Compartir",   icon: Share2     },
@@ -101,6 +103,7 @@ export function GerenciaLayout({ onBack }: GerenciaLayoutProps) {
         {tab === "equipo"    && <TabEquipo    fecha={fecha} />}
         {tab === "zonas"     && <TabZonas     fecha={fecha} />}
         {tab === "asesores"  && <TabAsesores  />}
+        {tab === "usuarios"  && <TabUsuarios  />}
         {tab === "informes"  && <TabInformes  />}
         {tab === "importar"  && <TabImportar  />}
         {tab === "compartir" && <TabCompartir />}

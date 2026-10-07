@@ -2,7 +2,13 @@
 // lib/db.ts - Conexión Neon + Tipos + Helpers GPS
 // ============================================================================
 
-import { neon } from '@neondatabase/serverless';
+import { neon, neonConfig } from '@neondatabase/serverless';
+
+// Solo desarrollo local: si DEV_NEON_PROXY está definida (p. ej. http://127.0.0.1:4444/sql)
+// las consultas van a una base de pruebas local en lugar de Neon. En producción no existe.
+if (process.env.DEV_NEON_PROXY) {
+  neonConfig.fetchEndpoint = process.env.DEV_NEON_PROXY;
+}
 
 // No lanzar error durante build - solo advertencia
 const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://dummy@localhost/dummy';

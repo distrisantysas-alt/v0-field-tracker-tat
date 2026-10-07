@@ -25,6 +25,8 @@ interface LoginAsesorProps {
 
 export function LoginAsesor({ onLogin, onBack }: LoginAsesorProps) {
   const [email, setEmail] = useState("")
+  const [clave, setClave] = useState("")
+  const [pedirClave, setPedirClave] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
@@ -42,12 +44,13 @@ export function LoginAsesor({ onLogin, onBack }: LoginAsesorProps) {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: emailTrimmed }),
+        body: JSON.stringify({ email: emailTrimmed, clave: pedirClave ? clave : undefined }),
       })
 
       const data = await res.json()
 
       if (!res.ok) {
+        if (data.requiere_clave) setPedirClave(true)
         setError(data.error || "Error al iniciar sesión")
         return
       }
@@ -108,6 +111,8 @@ export function LoginAsesor({ onLogin, onBack }: LoginAsesorProps) {
             onChange={(e) => {
               setEmail(e.target.value)
               setError("")
+              setPedirClave(false)
+              setClave("")
             }}
             onKeyDown={handleKeyDown}
             placeholder="tu@email.com"
@@ -123,6 +128,19 @@ export function LoginAsesor({ onLogin, onBack }: LoginAsesorProps) {
           />
         </div>
 
+        {pedirClave && (
+          <input
+            type="password"
+            value={clave}
+            onChange={(e) => { setClave(e.target.value); setError("") }}
+            onKeyDown={handleKeyDown}
+            placeholder="Tu clave"
+            autoComplete="current-password"
+            autoFocus
+            className="w-full rounded-xl border border-white/10 bg-dark-surface px-4 py-4 text-white placeholder-gray-500 focus:border-navy-accent focus:outline-none focus:ring-2 focus:ring-navy-accent/30"
+          />
+        )}
+
         {/* Error */}
         {error && (
           <div className="flex items-center gap-2 rounded-lg bg-danger/10 border border-danger/20 px-3 py-2">
@@ -134,7 +152,7 @@ export function LoginAsesor({ onLogin, onBack }: LoginAsesorProps) {
         {/* Botón */}
         <button
           onClick={handleSubmit}
-          disabled={loading || !email.trim()}
+          disabled={loading || !email.trim() || (pedirClave && !clave)}
           className="flex w-full items-center justify-center gap-3 rounded-xl bg-navy-accent py-4 font-semibold text-white
             transition-all active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed
             hover:bg-navy-accent/90 shadow-lg shadow-navy-accent/20"
