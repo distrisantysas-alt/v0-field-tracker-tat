@@ -21,6 +21,12 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'asesor_id y mes (AAAA-MM) válidos son requeridos' }, { status: 400 })
     }
 
+    // Un mes cerrado en Incentivos esta congelado: sus dias no se tocan (hay que reabrirlo)
+    const cerrado = await sql`SELECT 1 FROM incentivo_cierres WHERE mes = ${mes}`.catch(() => [])
+    if (cerrado.length > 0) {
+      return NextResponse.json({ error: 'Ese mes está cerrado en Incentivos. Reábrelo para cambiar los días laborables.' }, { status: 409 })
+    }
+
     if (dias === null) {
       await sql`DELETE FROM dias_laborables WHERE asesor_id = ${asesor_id}::uuid AND mes = ${mes}`
       return NextResponse.json({ success: true, dias: null })

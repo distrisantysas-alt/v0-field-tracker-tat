@@ -9,9 +9,10 @@
 
 import { useState, useMemo, useRef } from "react"
 import useSWR from "swr"
-import { Loader2, Download, Upload, AlertTriangle, CheckCircle2 } from "lucide-react"
+import { Loader2, Download, Upload, AlertTriangle, CheckCircle2, Lock } from "lucide-react"
 import { fetcher } from "@/lib/fetcher"
 import { leerDevolucionesPOS } from "@/lib/pos-devoluciones"
+import { evaluarRegla, describirRegla, type Metricas, type Regla, type Resultado } from "@/lib/incentivos"
 
 type Filtro = "semana" | "semana_pasada" | "mes" | "mes_pasado" | "rango"
 
@@ -46,31 +47,34 @@ function rangoDe(filtro: Exclude<Filtro, "rango">): { inicio: string; fin: strin
 function efectividadNeta(pedidos: number, devoluciones: number, visitas: number): number {
   return visitas > 0 ? (Math.max(0, pedidos - devoluciones) / visitas) * 100 : 0
 }
-// Escala del bono (se liquida con el mes completo). Se evalúa con valores exactos, no redondeados.
-//   $200.000: promedio >= 50 visitas/día y efectividad neta >= 45%
-//   $120.000: promedio >= 40 visitas/día y efectividad neta  > 40%
-// El promedio es visitas ÷ días laborables del asesor en el mes (los fija el supervisor, cada
-// asesor puede tener distintos). Si aún no se fijan, o el periodo no es un mes completo, se
-// usan los días en que el asesor registró visitas.
-const BONOS = [
-  { monto: 200000, minProm: 50, minEfect: 45, estricto: false },
-  { monto: 120000, minProm: 40, minEfect: 40, estricto: true },
-]
-type Bono = (typeof BONOS)[number]
-const cumpleProm = (prom: number, b: Bono) => prom >= b.minProm
-const cumpleEfect = (pct: number, b: Bono) => (b.estricto ? pct > b.minEfect : pct >= b.minEfect)
+// Los incentivos NO se calculan aquí: las reglas las define el admin maestro en
+// Gerencia → Incentivos y el motor (lib/incentivos.ts) las evalúa.
+//   · Mes completo: se muestra lo que calcula el servidor (o lo congelado si el mes está cerrado),
+//     con los días laborables de cada asesor (o el calendario si no se fijaron).
+//   · Semana / mes en curso / rango: es una REFERENCIA calculada aquí con los datos del periodo,
+//     promediando las visitas sobre los días en que el asesor registró visitas.
+type BonoFila = { total: number; items: { regla: Regla; res: Resultado }[] }
 
-function evaluarBono(prom: number, pct: number): { monto: number; falta: string | null } {
-  const ganado = BONOS.find(b => cumpleProm(prom, b) && cumpleEfect(pct, b))
-  if (ganado) return { monto: ganado.monto, falta: ganado === BONOS[0] ? null : faltaPara(BONOS[0], prom, pct) }
-  return { monto: 0, falta: faltaPara(BONOS[BONOS.length - 1], prom, pct) }
+function textoFalta(res: Resultado): string | null {
+  return res.falta ?? (res.incompleto ? "Falta un dato para calcularlo" : null)
 }
-function faltaPara(b: Bono, prom: number, pct: number): string | null {
-  const partes: string[] = []
-  if (!cumpleProm(prom, b)) partes.push(`${(b.minProm - prom).toFixed(1)} visitas/día`)
-  if (!cumpleEfect(pct, b)) partes.push(`${Math.max(0.1, b.minEfect - pct).toFixed(1)} pts de efectividad`)
-  return partes.length ? `Faltan ${partes.join(" y ")} para $${b.monto / 1000} mil` : null
+// Detalle completo (al pasar el cursor): una línea por regla
+function detalleBono(b: BonoFila): string {
+  return b.items
+    .map(i => `${i.regla.nombre}: ${i.res.monto > 0 ? `${i.res.nivel ?? ""} → $${i.res.monto.toLocaleString("es-CO")}` : "sin incentivo"}${textoFalta(i.res) ? ` · ${textoFalta(i.res)}` : ""}`)
+    .join("\n")
 }
+// Lineas visibles bajo el monto: lo ganado por regla (si hay varias) y que falta para el siguiente nivel
+function lineasBono(b: BonoFila, variasReglas: boolean): { texto: string; ganado: boolean }[] {
+  const out: { texto: string; ganado: boolean }[] = []
+  if (variasReglas) for (const i of b.items) if (i.res.monto > 0) out.push({ texto: `${i.regla.nombre}: $${i.res.monto.toLocaleString("es-CO")}`, ganado: true })
+  for (const i of b.items) {
+    const t = textoFalta(i.res)
+    if (t) { out.push({ texto: variasReglas ? `${i.regla.nombre}: ${t}` : t, ganado: false }); break }
+  }
+  return out
+}
+
 const pesos = (n: number) => "$" + n.toLocaleString("es-CO")
 function promedioDia(visitas: number, dias: number): number {
   return dias > 0 ? visitas / dias : 0
@@ -121,11 +125,41 @@ export function SupervisorPeriodo() {
   const mesCompleto = inicio.endsWith("-01") && fin >= finDeMes
   const mes = inicio.slice(0, 7)
 
-  // Días sobre los que se promedian las visitas del asesor
-  const diasDe = (r: { diasConVisitas: number; diasLaborables: number | null }) =>
-    mesCompleto && r.diasLaborables ? r.diasLaborables : r.diasConVisitas
-  const bonoDe = (r: { visitas: number; diasConVisitas: number; diasLaborables: number | null; pedidos: number; devoluciones: number }) =>
-    evaluarBono(promedioDia(r.visitas, diasDe(r)), efectividadNeta(r.pedidos, r.devoluciones, r.visitas))
+  // Reglas y resultados del motor de incentivos (Gerencia → Incentivos)
+  const mesRef = mesCompleto ? mes : fin.slice(0, 7)
+  const { data: inc, mutate: mutarInc } = useSWR(rangoValido ? `/api/admin/incentivos?mes=${mesRef}` : null, fetcher)
+  const incOk = !!inc && !inc.error
+  const reglas: Regla[] = incOk ? (inc.reglas ?? []) : []
+  const cerrado = mesCompleto && incOk && !!inc.cierre
+  const calendario: number | null = incOk && inc.datos ? Number(inc.datos.dias_calendario) : null
+
+  // Días sobre los que se promedian las visitas del asesor: en mes completo, los fijados
+  // (o el calendario si no hay); en otros periodos, los días en que registró visitas.
+  type FilaBase = { id: string; visitas: number; diasConVisitas: number; diasLaborables: number | null; pedidos: number; devoluciones: number }
+  const diasDe = (r: Pick<FilaBase, "diasConVisitas" | "diasLaborables">) =>
+    mesCompleto ? (r.diasLaborables ?? calendario ?? r.diasConVisitas) : r.diasConVisitas
+
+  const bonoDe = (r: FilaBase): BonoFila => {
+    if (!incOk) return { total: 0, items: [] }
+    if (mesCompleto) {
+      const f = ((inc.filas ?? []) as any[]).find(x => x.asesor_id === r.id)
+      if (!f) return { total: 0, items: [] }
+      const items = (f.resultados as any[])
+        .map(x => ({ regla: reglas.find(g => g.id === x.regla_id) as Regla, res: x as Resultado }))
+        .filter(i => i.regla)
+      return { total: Number(f.total) || 0, items }
+    }
+    // Referencia: solo lo que se puede saber con los datos de este periodo
+    const m: Metricas = {
+      visitas: r.visitas,
+      pedidos: r.pedidos,
+      visitas_dia: promedioDia(r.visitas, r.diasConVisitas),
+      efectividad_bruta: r.visitas > 0 ? (r.pedidos / r.visitas) * 100 : 0,
+    }
+    if (data && data.devolucionesCargadas > 0) m.efectividad_neta = efectividadNeta(r.pedidos, r.devoluciones, r.visitas)
+    const items = reglas.map(regla => ({ regla, res: evaluarRegla(regla, m) }))
+    return { total: items.reduce((s, i) => s + i.res.monto, 0), items }
+  }
 
   const [errorDias, setErrorDias] = useState<string | null>(null)
   async function guardarDias(asesorId: string, valor: string) {
@@ -140,6 +174,7 @@ export function SupervisorPeriodo() {
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || "No se pudo guardar los días laborables")
       mutate()
+      mutarInc()
     } catch (e: any) {
       setErrorDias(e.message || "No se pudo guardar los días laborables")
     }
@@ -194,18 +229,20 @@ export function SupervisorPeriodo() {
   }
 
   function descargarCSV() {
+    const bonos = filas.map(r => bonoDe(r))
+    const montoRegla = (b: BonoFila, id: string) => b.items.find(i => i.regla.id === id)?.res.monto ?? 0
     const filasCsv = [
-      ["Asesor", "Visitas", "Dias laborables", "Promedio visitas/dia", "Pedidos efectivos", "Devoluciones", "Pedidos netos", "Efectividad neta %", "Bono"],
-      ...filas.map(r => [
+      ["Asesor", "Visitas", "Dias laborables", "Promedio visitas/dia", "Pedidos efectivos", "Devoluciones", "Pedidos netos", "Efectividad neta %", "Incentivo total", ...reglas.map(g => `Incentivo: ${g.nombre}`)],
+      ...filas.map((r, i) => [
         r.nombre, r.visitas, diasDe(r), promedioDia(r.visitas, diasDe(r)).toFixed(1), r.pedidos, r.devoluciones, r.pedidos - r.devoluciones,
         efectividadNeta(r.pedidos, r.devoluciones, r.visitas).toFixed(1),
-        bonoDe(r).monto,
+        bonos[i].total, ...reglas.map(g => montoRegla(bonos[i], g.id)),
       ]),
       [
         "TOTAL EQUIPO", totales.visitas, "", "", totales.pedidos, totales.devoluciones,
         totales.pedidos - totales.devoluciones,
         efectividadNeta(totales.pedidos, totales.devoluciones, totales.visitas).toFixed(1),
-        filas.reduce((s, r) => s + bonoDe(r).monto, 0),
+        bonos.reduce((s, b) => s + b.total, 0), ...reglas.map(g => bonos.reduce((s, b) => s + montoRegla(b, g.id), 0)),
       ],
     ]
     const contenido = filasCsv.map(f => f.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n")
@@ -213,12 +250,12 @@ export function SupervisorPeriodo() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `bono-asesores_${inicio}_${fin}.csv`
+    a.download = `incentivos-asesores_${inicio}_${fin}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
 
-  const totalBonos = filas.reduce((s, r) => s + bonoDe(r).monto, 0)
+  const totalBonos = filas.reduce((s, r) => s + bonoDe(r).total, 0)
 
   const sinDevoluciones = data && data.devolucionesCargadas === 0
   const cargadasHasta: string | null = data?.devolucionesHasta ? String(data.devolucionesHasta).slice(0, 10) : null
@@ -229,7 +266,7 @@ export function SupervisorPeriodo() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-white">Bono: efectividad neta</p>
+        <p className="text-sm font-semibold text-white">Incentivos del equipo</p>
         <button
           onClick={descargarCSV}
           disabled={filas.length === 0}
@@ -313,7 +350,7 @@ export function SupervisorPeriodo() {
             <table className="w-full text-xs">
               <thead className="bg-white/[0.03]">
                 <tr>
-                  {["Asesor", "Visitas", "Días lab.", "Prom/día", "Pedidos", "Devol.", "Netos", "Efectividad", "Bono"].map((t, i) => (
+                  {["Asesor", "Visitas", "Días lab.", "Prom/día", "Pedidos", "Devol.", "Netos", "Efectividad", "Incentivo"].map((t, i) => (
                     <th
                       key={t}
                       className={`px-3 py-2.5 text-[10px] font-medium uppercase tracking-wide text-gray-500 ${i === 0 ? "text-left" : "text-right"}`}
@@ -349,12 +386,13 @@ export function SupervisorPeriodo() {
                             min={1}
                             max={31}
                             defaultValue={r.diasLaborables ?? ""}
-                            placeholder={String(r.diasConVisitas)}
+                            placeholder={String(calendario ?? r.diasConVisitas)}
                             onBlur={e => {
                               const v = e.target.value
                               if (v !== String(r.diasLaborables ?? "")) guardarDias(r.id, v)
                             }}
-                            title={r.diasLaborables ? "Días laborables del mes" : `Sin definir: se usan los ${r.diasConVisitas} días con visitas`}
+                            disabled={cerrado}
+                            title={cerrado ? "Mes cerrado: reábrelo en Incentivos para cambiar los días" : r.diasLaborables ? "Días laborables del mes" : `Sin definir: se usa el calendario (${calendario ?? r.diasConVisitas} días, lunes a sábado sin festivos)`}
                             className={`w-12 rounded-md border bg-dark-bg px-1.5 py-1 text-right text-xs text-white focus:border-navy-accent focus:outline-none ${r.diasLaborables ? "border-white/20" : "border-warning/50"}`}
                           />
                         ) : (
@@ -366,13 +404,15 @@ export function SupervisorPeriodo() {
                       <td className="px-3 py-2.5 text-right text-gray-400">−{r.devoluciones.toLocaleString("es-CO")}</td>
                       <td className="px-3 py-2.5 text-right text-white">{(r.pedidos - r.devoluciones).toLocaleString("es-CO")}</td>
                       <td className={`px-3 py-2.5 text-right font-semibold ${colorEfectividad(pct)}`}>{pct.toFixed(1)}%</td>
-                      <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                        {bono.monto > 0 ? (
-                          <span className="font-bold text-success">{pesos(bono.monto)}</span>
+                      <td className="px-3 py-2.5 text-right whitespace-nowrap" title={detalleBono(bono)}>
+                        {bono.total > 0 ? (
+                          <span className="font-bold text-success">{pesos(bono.total)}</span>
                         ) : (
                           <span className="text-gray-500">—</span>
                         )}
-                        {bono.falta && <span className="block text-[9px] font-normal text-gray-500">{bono.falta}</span>}
+                        {lineasBono(bono, reglas.length > 1).map((l, i) => (
+                          <span key={i} className={`block max-w-[200px] truncate text-[9px] font-normal ${l.ganado ? "text-success/80" : "text-gray-500"}`}>{l.texto}</span>
+                        ))}
                       </td>
                     </tr>
                   )
@@ -397,16 +437,43 @@ export function SupervisorPeriodo() {
       )}
 
       <div className="rounded-xl border border-white/10 bg-dark-surface p-3 space-y-1">
-        <p className="text-xs font-semibold text-white">Escala del bono</p>
-        <p className="text-[11px] text-gray-400">$120.000 → promedio de 40 visitas/día o más y efectividad neta superior a 40%.</p>
-        <p className="text-[11px] text-gray-400">$200.000 → promedio de 50 visitas/día o más y efectividad neta de 45% o más.</p>
+        <p className="text-xs font-semibold text-white">Reglas de incentivo{rangoValido ? ` (${mesRef})` : ""}</p>
+        {!inc ? (
+          <p className="text-[11px] text-gray-500">Cargando reglas…</p>
+        ) : !incOk ? (
+          <p className="text-[11px] text-danger">No se pudieron cargar las reglas de incentivo. Intenta de nuevo.</p>
+        ) : reglas.length === 0 ? (
+          <p className="text-[11px] text-warning">
+            No hay reglas de incentivo vigentes en este mes, por eso no se calcula ningún incentivo. El admin maestro las crea en Gerencia → Incentivos
+            (cada regla aplica desde su fecha de inicio).
+          </p>
+        ) : (
+          reglas.map(g => (
+            <div key={g.id} className="space-y-0.5">
+              <p className="text-[11px] font-medium text-gray-200">{g.nombre}</p>
+              {describirRegla(g).map((l, i) => <p key={i} className="text-[11px] text-gray-400">{l}</p>)}
+            </div>
+          ))
+        )}
         <p className="text-[10px] text-gray-600">
-          Promedio = visitas del mes ÷ días laborables de cada asesor. Escribe los días laborables de cada uno en la columna "Días lab." (vacaciones, incapacidades, ingreso a mitad de mes).
-          Mientras esté vacío (borde naranja) se usan los días en que el asesor registró visitas.
+          Promedio = visitas del mes ÷ días laborables de cada asesor. Escribe los días de cada uno en la columna "Días lab." (vacaciones, incapacidades, ingreso a mitad de mes).
+          Mientras esté vacío (borde naranja) se usa el calendario{calendario ? ` (${calendario} días: lunes a sábado sin festivos)` : ""}.
         </p>
         {errorDias && <p className="text-[11px] text-danger">{errorDias}</p>}
+        {rangoValido && incOk && mesCompleto && cerrado && (
+          <p className="flex items-start gap-1.5 text-[11px] text-gray-300">
+            <Lock className="mt-0.5 h-3 w-3 shrink-0 text-warning" />
+            Mes cerrado{inc.cierre?.cerrado_por ? ` por ${inc.cierre.cerrado_por}` : ""}: los incentivos están congelados tal como se liquidaron. Para corregirlos hay que reabrir el mes en Incentivos.
+          </p>
+        )}
+        {rangoValido && incOk && mesCompleto && !cerrado && reglas.length > 0 && (
+          <p className="text-[11px] text-gray-500">Mes aún sin cerrar: los valores pueden cambiar hasta que el admin maestro lo cierre en Incentivos.</p>
+        )}
         {rangoValido && !mesCompleto && (
-          <p className="text-[11px] text-warning">Este periodo no es un mes completo: el bono es una referencia y los días laborables solo se editan al ver el mes completo.</p>
+          <p className="text-[11px] text-warning">
+            Este periodo no es un mes completo: el incentivo es solo una referencia (el promedio usa los días con visitas). Lo que depende de activaciones, cobertura,
+            presupuesto o ventas se calcula únicamente con el mes completo, y los días laborables solo se editan al verlo.
+          </p>
         )}
       </div>
 
