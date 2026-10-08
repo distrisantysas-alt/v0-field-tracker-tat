@@ -183,7 +183,7 @@ export default function AdminAsesores() {
         ) : (
           <div className="grid md:grid-cols-2 gap-4">
             {asesoresData?.asesores
-              ?.filter((a: Asesor) => a.nombre && !a.nombre.match(/^(lunes|martes|mi|s[aá]bado|jueves|viernes|domingo)/i))
+              ?.filter((a: Asesor) => a.nombre && !a.nombre.match(/^(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b/i))
               .map((asesor: Asesor) => (
                 <button
                   key={asesor.id}

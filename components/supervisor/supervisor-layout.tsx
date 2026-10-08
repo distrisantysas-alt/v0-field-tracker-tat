@@ -214,6 +214,12 @@ function EquipoView({ data }: { data: any }) {
           </button>
         ))
       )}
+      {data?.ocultos_sin_actividad > 0 && (
+        <p className="px-1 pt-2 text-[11px] text-gray-500">
+          {data.ocultos_sin_actividad} cuenta{data.ocultos_sin_actividad === 1 ? "" : "s"} sin clientes ni visitas recientes no se muestra{data.ocultos_sin_actividad === 1 ? "" : "n"}.
+          Si no se usan, el administrador puede desactivarlas en Usuarios.
+        </p>
+      )}
     </div>
   )
 }

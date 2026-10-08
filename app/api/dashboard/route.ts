@@ -20,52 +20,38 @@ export async function GET(req: NextRequest) {
     const zona  = searchParams.get('zona') || null;
 
     // ── Métricas por asesor ──────────────────────────────────────────────
-    // Dos queries separadas para evitar SQL condicional anidado
-    const equipoRows = zona
-      ? await sql`
-          SELECT
-            a.id,
-            a.nombre,
-            a.zona,
-            a.activo,
-            COUNT(DISTINCT r.cliente_id)                                   AS clientes_asignados,
-            COUNT(DISTINCT v.id)                                           AS visitas_hoy,
-            COUNT(DISTINCT v.id) FILTER (WHERE v.validada = true)          AS validadas,
-            COUNT(DISTINCT v.id) FILTER (WHERE v.validada = false
-              AND v.id IS NOT NULL)                                        AS sospechosas,
-            MAX(v.timestamp)                                               AS ultima_visita,
-            COALESCE(SUM(v.valor_pedido) FILTER (WHERE v.hubo_pedido), 0) AS vendido_hoy,
-            COUNT(DISTINCT v.id) FILTER (WHERE v.hubo_pedido = true)      AS pedidos_hoy
-          FROM asesores a
-          LEFT JOIN rutas_dia r ON r.asesor_id = a.id AND r.fecha = ${fecha}::date
-          LEFT JOIN visitas v   ON v.asesor_id = a.id
-            AND DATE(v.timestamp AT TIME ZONE 'America/Bogota') = ${fecha}::date
-          WHERE a.activo = true AND a.zona = ${zona}
-          GROUP BY a.id, a.nombre, a.zona, a.activo
-          ORDER BY visitas_hoy DESC NULLS LAST
-        `
-      : await sql`
-          SELECT
-            a.id,
-            a.nombre,
-            a.zona,
-            a.activo,
-            COUNT(DISTINCT r.cliente_id)                                   AS clientes_asignados,
-            COUNT(DISTINCT v.id)                                           AS visitas_hoy,
-            COUNT(DISTINCT v.id) FILTER (WHERE v.validada = true)          AS validadas,
-            COUNT(DISTINCT v.id) FILTER (WHERE v.validada = false
-              AND v.id IS NOT NULL)                                        AS sospechosas,
-            MAX(v.timestamp)                                               AS ultima_visita,
-            COALESCE(SUM(v.valor_pedido) FILTER (WHERE v.hubo_pedido), 0) AS vendido_hoy,
-            COUNT(DISTINCT v.id) FILTER (WHERE v.hubo_pedido = true)      AS pedidos_hoy
-          FROM asesores a
-          LEFT JOIN rutas_dia r ON r.asesor_id = a.id AND r.fecha = ${fecha}::date
-          LEFT JOIN visitas v   ON v.asesor_id = a.id
-            AND DATE(v.timestamp AT TIME ZONE 'America/Bogota') = ${fecha}::date
-          WHERE a.activo = true
-          GROUP BY a.id, a.nombre, a.zona, a.activo
-          ORDER BY visitas_hoy DESC NULLS LAST
-        `;
+    // Solo asesores de verdad (rol 'asesor') y activos. Los activos con trabajo van primero;
+    // los que no tienen clientes ni visitas en 60 dias (cuentas migradas que nadie usa) se
+    // ocultan y se informan aparte, para que no estorben en el seguimiento del dia.
+    const todosRows = await sql`
+      SELECT
+        a.id,
+        a.nombre,
+        a.zona,
+        a.activo,
+        COUNT(DISTINCT r.cliente_id)                                   AS clientes_asignados,
+        COUNT(DISTINCT v.id)                                           AS visitas_hoy,
+        COUNT(DISTINCT v.id) FILTER (WHERE v.validada = true)          AS validadas,
+        COUNT(DISTINCT v.id) FILTER (WHERE v.validada = false
+          AND v.id IS NOT NULL)                                        AS sospechosas,
+        MAX(v.timestamp)                                               AS ultima_visita,
+        COALESCE(SUM(v.valor_pedido) FILTER (WHERE v.hubo_pedido), 0) AS vendido_hoy,
+        COUNT(DISTINCT v.id) FILTER (WHERE v.hubo_pedido = true)      AS pedidos_hoy,
+        (
+          EXISTS (SELECT 1 FROM clientes c WHERE c.asesor_id = a.id AND c.activo = true)
+          OR EXISTS (SELECT 1 FROM asesor_clientes ac JOIN clientes c2 ON c2.id = ac.cliente_id AND c2.activo = true WHERE ac.asesor_id = a.id)
+          OR EXISTS (SELECT 1 FROM visitas v2 WHERE v2.asesor_id = a.id AND v2.timestamp >= now() - interval '60 days')
+        )                                                              AS con_actividad
+      FROM asesores a
+      LEFT JOIN rutas_dia r ON r.asesor_id = a.id AND r.fecha = ${fecha}::date
+      LEFT JOIN visitas v   ON v.asesor_id = a.id
+        AND DATE(v.timestamp AT TIME ZONE 'America/Bogota') = ${fecha}::date
+      WHERE a.activo = true AND a.rol = 'asesor' AND (${zona}::text IS NULL OR a.zona = ${zona}::text)
+      GROUP BY a.id, a.nombre, a.zona, a.activo
+      ORDER BY visitas_hoy DESC, clientes_asignados DESC, a.nombre
+    `;
+    const equipoRows = (todosRows as any[]).filter(a => a.con_actividad || Number(a.visitas_hoy) > 0);
+    const ocultosSinActividad = todosRows.length - equipoRows.length;
 
     // ── Alertas (visitas sospechosas del día) ────────────────────────────
     const alertas = zona
@@ -81,6 +67,7 @@ export async function GET(req: NextRequest) {
           JOIN asesores a ON v.asesor_id = a.id
           JOIN clientes c ON v.cliente_id = c.id
           WHERE v.validada = false
+            AND a.activo = true
             AND DATE(v.timestamp AT TIME ZONE 'America/Bogota') = ${fecha}::date
             AND a.zona = ${zona}
           ORDER BY v.timestamp DESC
@@ -98,6 +85,7 @@ export async function GET(req: NextRequest) {
           JOIN asesores a ON v.asesor_id = a.id
           JOIN clientes c ON v.cliente_id = c.id
           WHERE v.validada = false
+            AND a.activo = true
             AND DATE(v.timestamp AT TIME ZONE 'America/Bogota') = ${fecha}::date
           ORDER BY v.timestamp DESC
           LIMIT 20
@@ -178,6 +166,7 @@ export async function GET(req: NextRequest) {
         distancia_metros: Math.round(Number(al.distancia_metros || 0)),
       })),
       por_zona: porZona,
+      ocultos_sin_actividad: ocultosSinActividad,
     });
 
   } catch (error) {

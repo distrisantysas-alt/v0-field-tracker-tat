@@ -83,6 +83,11 @@ function describir(c: Cambio): string {
       if (otros.length) partes.push(`editó ${otros.join(", ")}`)
       return `${partes.join(" y ") || "editó"} — ${quien}`
     }
+    case "reasignar_rutas": {
+      const rutas: string[] = c.detalle?.rutas ?? []
+      const de = (c.detalle?.de ?? []).map((d: any) => `${d.nombre} (${d.clientes})`).join(", ")
+      return `pasó ${c.detalle?.clientes ?? 0} clientes de ${rutas.length} ruta${rutas.length === 1 ? "" : "s"} (${rutas.slice(0, 6).join(", ")}${rutas.length > 6 ? "…" : ""}) a ${quien}${de ? `, venían de ${de}` : ""}`
+    }
     default: return `${c.accion} — ${quien}`
   }
 }

@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
         ) AS vencida
       FROM asignaciones ag
       JOIN clientes c ON c.id = ag.cliente_id
-      JOIN asesores a ON a.id = ag.asesor_id
+      JOIN asesores a ON a.id = ag.asesor_id AND a.activo = true
       ORDER BY ag.updated_at DESC
       LIMIT 300
     `
@@ -58,7 +58,12 @@ export async function POST(req: NextRequest) {
     const creadas = []
     for (const c of clientes) {
       if (!c.clienteId) continue
-      const clienteRows = await sql`SELECT id, asesor_id FROM clientes WHERE id = ${c.clienteId} AND activo = true`
+      // solo se envia a un asesor activo: un cliente de un asesor desactivado hay que reasignarlo primero
+      const clienteRows = await sql`
+        SELECT c.id, c.asesor_id FROM clientes c
+        JOIN asesores a ON a.id = c.asesor_id AND a.activo = true
+        WHERE c.id = ${c.clienteId} AND c.activo = true
+      `
       const cliente = clienteRows[0]
       if (!cliente || !cliente.asesor_id) continue
 

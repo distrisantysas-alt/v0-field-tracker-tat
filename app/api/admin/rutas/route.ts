@@ -7,12 +7,7 @@
 import { sql } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSesion } from '@/lib/auth'
-
-function rutaDe(nombre: string): string {
-  const m = (nombre || '').match(/^(\d+)([A-Za-z]?)/)
-  if (!m) return 'SIN-RUTA'
-  return String(parseInt(m[1], 10)) + m[2].toUpperCase()
-}
+import { rutaDe } from '@/lib/rutas'
 
 export async function GET(req: NextRequest) {
   try {
@@ -25,7 +20,7 @@ export async function GET(req: NextRequest) {
     const rows = await sql`
       SELECT
         c.id, c.codigo, c.nombre, c.direccion, c.lat, c.lng,
-        c.asesor_id, a.nombre AS asesor_nombre,
+        c.asesor_id, a.nombre AS asesor_nombre, a.activo AS asesor_activo,
         COUNT(v.id) AS total_visitas,
         COUNT(v.id) FILTER (WHERE v.hubo_pedido) AS total_pedidos,
         MAX(v.timestamp) AS ultima_visita,
@@ -44,7 +39,7 @@ export async function GET(req: NextRequest) {
         LIMIT 1
       ) ug ON true
       WHERE c.activo = true
-      GROUP BY c.id, c.codigo, c.nombre, c.direccion, c.lat, c.lng, c.asesor_id, a.nombre,
+      GROUP BY c.id, c.codigo, c.nombre, c.direccion, c.lat, c.lng, c.asesor_id, a.nombre, a.activo,
                ug.estado, ug.asesor_gestion_nombre, ug.updated_at
     `
 
@@ -71,7 +66,9 @@ export async function GET(req: NextRequest) {
       rutas.get(ruta)!.push({
         id: row.id, codigo: row.codigo, nombre: row.nombre, direccion: row.direccion,
         lat: row.lat, lng: row.lng,
-        asesorId: row.asesor_id, asesorNombre: row.asesor_nombre,
+        // un asesor desactivado ya no es dueño efectivo: el cliente se ve "sin asignar" para reasignarlo
+        asesorId: row.asesor_activo === false ? null : row.asesor_id,
+        asesorNombre: row.asesor_activo === false ? null : row.asesor_nombre,
         totalVisitas, totalPedidos, visitasSinPedido, nuncaVisitado, diasSinVisita, motivo,
         ultimaGestion: row.ultima_gestion_estado ? {
           estado: row.ultima_gestion_estado,

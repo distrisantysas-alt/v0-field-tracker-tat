@@ -259,6 +259,12 @@ function TabEquipo({ fecha }: { fecha: string }) {
           <ChevronRight className="h-4 w-4 text-gray-600 shrink-0" />
         </button>
       ))}
+      {data.ocultos_sin_actividad > 0 && (
+        <p className="px-1 pt-2 text-[11px] text-gray-500">
+          {data.ocultos_sin_actividad} cuenta{data.ocultos_sin_actividad === 1 ? '' : 's'} sin clientes ni visitas recientes no se muestra{data.ocultos_sin_actividad === 1 ? '' : 'n'}.
+          Si no se usan, desactívalas en Usuarios.
+        </p>
+      )}
     </div>
   )
 }
@@ -364,7 +370,7 @@ function TabAsesores() {
   const [buscar, setBuscar]         = useState("")
 
   const asesores = (data?.asesores || []).filter((a: any) =>
-    a.nombre && !a.nombre.match(/^(lunes|martes|mi|sábado|jueves|viernes|domingo)/i)
+    a.nombre && !a.nombre.match(/^(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b/i)
   )
   const filtrados = asesores.filter((a: any) =>
     a.nombre.toLowerCase().includes(buscar.toLowerCase()) ||
@@ -1146,7 +1152,7 @@ function TabImportar() {
 function TabCompartir() {
   const { data, isLoading } = useSWR('/api/admin/asesores', fetcher)
   const asesores = (data?.asesores || []).filter((a: any) =>
-    a.nombre && !a.nombre.match(/^(lunes|martes|mi|sábado|jueves|viernes|domingo)/i) && a.activo
+    a.nombre && !a.nombre.match(/^(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b/i) && a.activo
   )
 
   const [asesorOrigen, setAsesorOrigen]       = useState("")

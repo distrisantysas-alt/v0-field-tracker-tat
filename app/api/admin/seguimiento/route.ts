@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
       FROM visitas v
       JOIN asesores a ON a.id = v.asesor_id
       WHERE v.distancia_metros = 0
+        AND a.activo = true
         AND v.timestamp >= NOW() - INTERVAL '30 days'
       GROUP BY a.id, a.nombre
       ORDER BY total_distancia_cero DESC
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest) {
       FROM visitas v
       JOIN asesores a ON a.id = v.asesor_id
       JOIN clientes c ON c.id = v.cliente_id
-      WHERE v.velocidad_sospechosa = true
+      WHERE v.velocidad_sospechosa = true AND a.activo = true
       ORDER BY v.timestamp DESC
       LIMIT 50
     `
@@ -52,7 +53,7 @@ export async function GET(req: NextRequest) {
       FROM visitas v
       JOIN asesores a ON a.id = v.asesor_id
       JOIN clientes c ON c.id = v.cliente_id
-      WHERE v.validada = false AND v.hubo_pedido = true
+      WHERE v.validada = false AND v.hubo_pedido = true AND a.activo = true
       ORDER BY v.timestamp DESC
       LIMIT 50
     `

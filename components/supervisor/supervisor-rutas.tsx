@@ -12,6 +12,7 @@ import { useState, useMemo } from "react"
 import useSWR from "swr"
 import { Search, Send, Loader2, MapPin, CheckSquare, Square, History } from "lucide-react"
 import { fetcher } from "@/lib/fetcher"
+import { ReasignarRutas } from "./supervisor-reasignar-rutas"
 
 type Cliente = {
   id: string
@@ -83,7 +84,7 @@ export function SupervisorRutas() {
     { refreshInterval: 15000 } // así el supervisor ve la gestión del asesor sin tener que refrescar
   )
 
-  const [vista, setVista] = useState<"enviar" | "gestiones">("enviar")
+  const [vista, setVista] = useState<"enviar" | "reasignar" | "gestiones">("enviar")
   const [rutaSel, setRutaSel] = useState<string | null>(null)
   const [busqueda, setBusqueda] = useState("")
   const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set())
@@ -180,12 +181,20 @@ export function SupervisorRutas() {
           Enviar clientes
         </button>
         <button
+          onClick={() => setVista("reasignar")}
+          className={`flex-1 rounded-lg py-2 text-xs font-semibold transition-colors ${
+            vista === "reasignar" ? "bg-navy-accent text-white" : "bg-dark-surface text-gray-400 border border-white/10"
+          }`}
+        >
+          Reasignar rutas
+        </button>
+        <button
           onClick={() => setVista("gestiones")}
           className={`relative flex-1 rounded-lg py-2 text-xs font-semibold transition-colors ${
             vista === "gestiones" ? "bg-navy-accent text-white" : "bg-dark-surface text-gray-400 border border-white/10"
           }`}
         >
-          <History className="h-3.5 w-3.5 inline mr-1 -mt-0.5" /> Gestiones realizadas
+          <History className="h-3.5 w-3.5 inline mr-1 -mt-0.5" /> Gestiones
           {sinGestionarCount > 0 && (
             <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-bold text-white">
               {sinGestionarCount}
@@ -194,7 +203,9 @@ export function SupervisorRutas() {
         </button>
       </div>
 
-      {vista === "gestiones" ? (
+      {vista === "reasignar" ? (
+        <ReasignarRutas />
+      ) : vista === "gestiones" ? (
         <div className="flex-1 overflow-y-auto px-4 pb-6">
           <div className="flex gap-1.5 mb-3 overflow-x-auto">
             {[
