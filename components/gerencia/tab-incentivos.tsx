@@ -14,6 +14,7 @@ import { fetcher } from "@/lib/fetcher"
 import { METRICAS, describirRegla, type MetricaId } from "@/lib/incentivos"
 import { SelectorMes, mesActual, cop, nombreMes } from "./tab-metas"
 
+type AplicaA = "todos" | "local" | "viajero"
 type Modo = "escala" | "por_unidad"
 type Plantilla = "eficiencia" | "activacion" | "presupuesto" | "cobertura" | "personalizada"
 
@@ -23,6 +24,7 @@ interface ReglaApi {
   plantilla: Plantilla
   modo: Modo
   definicion: any
+  aplica_a: AplicaA
   activa: boolean
   vigente_desde: string
   vigente_hasta: string | null
@@ -44,6 +46,7 @@ interface BorradorRegla {
   nombre: string
   plantilla: Plantilla
   modo: Modo
+  aplica_a: AplicaA
   niveles: NivelEd[]
   unidad: { metrica: MetricaId; monto_unidad: string; minimo: string; tope: string }
   vigente_desde: string
@@ -56,7 +59,7 @@ function nivelVacio(n: number, conds: CondEd[]): NivelEd {
 
 function borradorNuevo(p: Plantilla): BorradorRegla {
   const base: BorradorRegla = {
-    nombre: PLANTILLAS.find(x => x.id === p)!.titulo, plantilla: p, modo: "escala",
+    nombre: PLANTILLAS.find(x => x.id === p)!.titulo, plantilla: p, modo: "escala", aplica_a: "todos",
     niveles: [], unidad: { metrica: "activaciones", monto_unidad: "", minimo: "0", tope: "" },
     vigente_desde: mesActual() + "-01", vigente_hasta: "",
   }
@@ -70,7 +73,7 @@ function borradorNuevo(p: Plantilla): BorradorRegla {
 
 function borradorDe(r: ReglaApi): BorradorRegla {
   const b = borradorNuevo(r.plantilla)
-  b.id = r.id; b.nombre = r.nombre; b.modo = r.modo
+  b.id = r.id; b.nombre = r.nombre; b.modo = r.modo; b.aplica_a = r.aplica_a ?? "todos"
   b.vigente_desde = r.vigente_desde; b.vigente_hasta = r.vigente_hasta ?? ""
   if (r.modo === "escala") {
     b.niveles = r.definicion.niveles.map((n: any) => ({
@@ -188,13 +191,13 @@ export function TabIncentivos() {
         {filas.map(f => (
           <div key={f.asesor_id} className="rounded-xl border border-white/10 bg-dark-surface p-3">
             <div className="flex items-baseline justify-between gap-2">
-              <p className="text-sm font-semibold text-white">{f.nombre}</p>
+              <p className="text-sm font-semibold text-white">{f.nombre}{f.perfil === "viajero" && <span className="ml-1.5 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-normal text-gray-400">Viajero</span>}</p>
               <p className={`font-mono text-sm font-bold ${f.total > 0 ? "text-success" : "text-gray-500"}`}>{cop(f.total)}</p>
             </div>
             <div className="mt-1.5 grid grid-cols-3 gap-x-3 gap-y-1 text-[11px] text-gray-400">
-              {(["visitas_dia", "efectividad_neta", "activaciones", "cobertura_pct", "cumplimiento_presupuesto_pct", "ventas"] as MetricaId[]).map(id => (
+              {(["visitas_dia", "pedidos_dia_neto", "efectividad_neta", "activaciones", "cobertura_pct", "cumplimiento_presupuesto_pct", "ventas"] as MetricaId[]).map(id => (
                 <span key={id} title={METRICAS[id].etiqueta}>
-                  <span className="text-gray-500">{({ visitas_dia: "Visitas/día", efectividad_neta: "Efect. neta", activaciones: "Activ.", cobertura_pct: "Cobertura", cumplimiento_presupuesto_pct: "Ppto.", ventas: "Ventas" } as any)[id]}: </span>
+                  <span className="text-gray-500">{({ visitas_dia: "Visitas/día", pedidos_dia_neto: "Pedidos/día", efectividad_neta: "Efect. neta", activaciones: "Activ.", cobertura_pct: "Cobertura", cumplimiento_presupuesto_pct: "Ppto.", ventas: "Ventas" } as any)[id]}: </span>
                   <b className="text-gray-200">{valorMetrica(id, f.metricas?.[id])}</b>
                 </span>
               ))}
@@ -229,7 +232,7 @@ export function TabIncentivos() {
             <div key={r.id} className={`rounded-lg border border-white/5 bg-dark-bg p-3 ${r.activa ? "" : "opacity-60"}`}>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-white">{r.nombre} {!r.activa && <span className="ml-1 rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-gray-400">Desactivada</span>}</p>
+                  <p className="text-sm font-medium text-white">{r.nombre} {!r.activa && <span className="ml-1 rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-gray-400">Desactivada</span>} {r.aplica_a && r.aplica_a !== "todos" && <span className="ml-1 rounded-full bg-navy-accent/20 px-2 py-0.5 text-[10px] text-navy-accent">{r.aplica_a === "viajero" ? "Viajeros" : "Locales"}</span>}</p>
                   <p className="text-[11px] text-gray-500">Desde {r.vigente_desde}{r.vigente_hasta ? ` hasta ${r.vigente_hasta}` : " sin fecha final"}</p>
                 </div>
                 <div className="flex shrink-0 gap-1.5">
@@ -285,8 +288,8 @@ export function TabIncentivos() {
           onCerrar={() => { setEditor(null); setAviso(null) }}
           onGuardar={async (b, definicion) => {
             const ok = b.id
-              ? await llamar("PATCH", { id: b.id, nombre: b.nombre, definicion, vigente_desde: b.vigente_desde, vigente_hasta: b.vigente_hasta || null })
-              : await llamar("POST", { accion: "crear_regla", nombre: b.nombre, plantilla: b.plantilla, modo: b.modo, definicion, vigente_desde: b.vigente_desde, vigente_hasta: b.vigente_hasta || null })
+              ? await llamar("PATCH", { id: b.id, nombre: b.nombre, aplica_a: b.aplica_a, definicion, vigente_desde: b.vigente_desde, vigente_hasta: b.vigente_hasta || null })
+              : await llamar("POST", { accion: "crear_regla", nombre: b.nombre, plantilla: b.plantilla, modo: b.modo, aplica_a: b.aplica_a, definicion, vigente_desde: b.vigente_desde, vigente_hasta: b.vigente_hasta || null })
             if (ok) setEditor(null)
           }}
         />
@@ -336,6 +339,15 @@ function EditorRegla({ borrador, aviso, trabajando, onCerrar, onGuardar }: {
       </div>
       <div className="space-y-3">
         <div><label className={eti} htmlFor="r-nombre">Nombre de la regla</label><input id="r-nombre" className={campo} value={b.nombre} onChange={e => setB({ ...b, nombre: e.target.value })} /></div>
+
+        <div>
+          <label className={eti} htmlFor="r-aplica">A quién se le paga</label>
+          <select id="r-aplica" className={campo} value={b.aplica_a} onChange={e => setB({ ...b, aplica_a: e.target.value as AplicaA })}>
+            <option value="todos">Todos los asesores</option>
+            <option value="local">Solo asesores locales</option>
+            <option value="viajero">Solo asesores viajeros</option>
+          </select>
+        </div>
 
         {b.plantilla === "personalizada" && !b.id && (
           <div>

@@ -12,6 +12,7 @@ import { exigirMaestro, auditar, UUID } from '@/lib/admin-auth'
 import { claveValida, claveTemporal, hashClave, CLAVE_MIN } from '@/lib/clave'
 
 const ROLES_CREABLES = ['asesor', 'supervisor', 'entregador'] as const
+const PERFILES = ['local', 'viajero']
 const EMAIL = /^[^s@]+@[^s@]+.[^s@]+$/
 
 function limpiarTexto(v: unknown, max: number): string | null {
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest) {
     if (m instanceof NextResponse) return m
 
     const usuarios = await sql`
-      SELECT a.id, a.nombre, a.email, a.rol, a.zona, a.telefono, a.activo, a.es_admin_maestro,
+      SELECT a.id, a.nombre, a.email, a.rol, a.zona, a.perfil, a.telefono, a.activo, a.es_admin_maestro,
              a.supervisor_id, s.nombre AS supervisor_nombre,
              (a.clave_hash IS NOT NULL) AS tiene_clave, a.clave_temporal,
              (a.bloqueado_hasta IS NOT NULL AND a.bloqueado_hasta > now()) AS bloqueado,
@@ -108,11 +109,13 @@ export async function POST(req: NextRequest) {
       hash = await hashClave(body.clave)
     }
 
+    const perfil = body.perfil ?? 'local'
+    if (!PERFILES.includes(perfil)) return NextResponse.json({ error: 'perfil debe ser local o viajero' }, { status: 400 })
     const zona = limpiarTexto(body.zona, 50)
     const telefono = limpiarTexto(body.telefono, 50)
     const creado = await sql`
-      INSERT INTO asesores (nombre, email, zona, rol, activo, supervisor_id, telefono, clave_hash, clave_temporal, clave_actualizada_en)
-      VALUES (${nombre}, ${email}, ${zona}, ${rol}, true, ${supervisorId}::uuid, ${telefono}, ${hash}, ${hash !== null}, ${hash ? new Date().toISOString() : null}::timestamptz)
+      INSERT INTO asesores (nombre, email, zona, perfil, rol, activo, supervisor_id, telefono, clave_hash, clave_temporal, clave_actualizada_en)
+      VALUES (${nombre}, ${email}, ${zona}, ${perfil}, ${rol}, true, ${supervisorId}::uuid, ${telefono}, ${hash}, ${hash !== null}, ${hash ? new Date().toISOString() : null}::timestamptz)
       RETURNING id, nombre, email, rol, zona
     `
     await auditar(m, 'crear_usuario', creado[0].id, { rol, con_clave: hash !== null })
@@ -160,6 +163,11 @@ export async function PATCH(req: NextRequest) {
       const z = limpiarTexto(body.zona, 50)
       await sql`UPDATE asesores SET zona = ${z} WHERE id = ${u.id}::uuid`
       cambios.zona = z
+    }
+    if (body.perfil !== undefined) {
+      if (!PERFILES.includes(body.perfil)) return NextResponse.json({ error: 'perfil debe ser local o viajero' }, { status: 400 })
+      await sql`UPDATE asesores SET perfil = ${body.perfil} WHERE id = ${u.id}::uuid`
+      cambios.perfil = body.perfil
     }
     if (body.telefono !== undefined) {
       const t = limpiarTexto(body.telefono, 50)

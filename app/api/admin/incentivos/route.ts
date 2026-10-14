@@ -14,9 +14,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireSesion } from '@/lib/auth'
 import { exigirMaestro, auditar, UUID } from '@/lib/admin-auth'
 import { datosDelMes, validarMes, mesActualBogota } from '@/lib/metricas'
-import { evaluarRegla, validarDefinicion, type Regla } from '@/lib/incentivos'
+import { evaluarRegla, validarDefinicion, reglaAplica, type Regla } from '@/lib/incentivos'
 
 const FECHA = /^\d{4}-\d{2}-\d{2}$/
+const APLICA_A = ['todos', 'local', 'viajero']
 const PLANTILLAS = ['eficiencia', 'activacion', 'presupuesto', 'cobertura', 'personalizada']
 
 function hoyBogota(): string {
@@ -25,7 +26,7 @@ function hoyBogota(): string {
 
 async function reglasDelMes(inicio: string, fin: string): Promise<Regla[]> {
   const f = await sql`
-    SELECT id, nombre, plantilla, modo, definicion, activa,
+    SELECT id, nombre, plantilla, modo, definicion, aplica_a, activa,
            vigente_desde::text AS vigente_desde, vigente_hasta::text AS vigente_hasta
     FROM incentivo_reglas
     WHERE activa = true AND vigente_desde <= ${fin}::date AND (vigente_hasta IS NULL OR vigente_hasta >= ${inicio}::date)
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
     if (!validarMes(mes)) return NextResponse.json({ error: 'mes inválido (AAAA-MM)' }, { status: 400 })
 
     const todas = await sql`
-      SELECT id, nombre, plantilla, modo, definicion, activa,
+      SELECT id, nombre, plantilla, modo, definicion, aplica_a, activa,
              vigente_desde::text AS vigente_desde, vigente_hasta::text AS vigente_hasta
       FROM incentivo_reglas ORDER BY activa DESC, creado_en
     `
@@ -76,9 +77,9 @@ export async function GET(req: NextRequest) {
 
     const reglas = await reglasDelMes(datos.inicio, datos.fin)
     const filas = datos.asesores.map(a => {
-      const resultados = reglas.map(r => ({ regla_id: r.id, ...evaluarRegla(r, a.metricas) }))
+      const resultados = reglas.filter(r => reglaAplica(r.aplica_a, a.perfil)).map(r => ({ regla_id: r.id, ...evaluarRegla(r, a.metricas) }))
       return {
-        asesor_id: a.asesor_id, nombre: a.nombre, zona: a.zona, metricas: a.metricas,
+        asesor_id: a.asesor_id, nombre: a.nombre, zona: a.zona, perfil: a.perfil, metricas: a.metricas,
         presupuesto: a.presupuesto, dias_laborables: a.dias_laborables, dias_definidos: a.dias_definidos,
         resultados, total: resultados.reduce((s, x) => s + x.monto, 0),
       }
@@ -124,6 +125,7 @@ export async function POST(req: NextRequest) {
       let filas = 0, total = 0
       for (const a of datos.asesores) {
         for (const r of reglas) {
+          if (!reglaAplica(r.aplica_a, a.perfil)) continue
           const res = evaluarRegla(r, a.metricas)
           await sql`
             INSERT INTO incentivo_resultados (mes, regla_id, regla, asesor_id, metricas, nivel, monto)
@@ -145,16 +147,18 @@ export async function POST(req: NextRequest) {
     if (!PLANTILLAS.includes(body.plantilla)) return NextResponse.json({ error: 'Plantilla desconocida' }, { status: 400 })
     const err = validarDefinicion(body.modo, body.definicion)
     if (err) return NextResponse.json({ error: err }, { status: 400 })
+    const aplicaA = body.aplica_a ?? 'todos'
+    if (!APLICA_A.includes(aplicaA)) return NextResponse.json({ error: 'aplica_a debe ser todos, local o viajero' }, { status: 400 })
     const desde = typeof body.vigente_desde === 'string' && FECHA.test(body.vigente_desde) ? body.vigente_desde : hoyBogota().slice(0, 8) + '01'
     const hasta = typeof body.vigente_hasta === 'string' && FECHA.test(body.vigente_hasta) ? body.vigente_hasta : null
     if (hasta && hasta < desde) return NextResponse.json({ error: 'La fecha final es anterior a la inicial' }, { status: 400 })
 
     const r = await sql`
-      INSERT INTO incentivo_reglas (nombre, plantilla, modo, definicion, vigente_desde, vigente_hasta, creado_por)
-      VALUES (${nombre}, ${body.plantilla}, ${body.modo}, ${JSON.stringify(body.definicion)}::jsonb, ${desde}::date, ${hasta}::date, ${m.asesorId}::uuid)
+      INSERT INTO incentivo_reglas (nombre, plantilla, modo, definicion, aplica_a, vigente_desde, vigente_hasta, creado_por)
+      VALUES (${nombre}, ${body.plantilla}, ${body.modo}, ${JSON.stringify(body.definicion)}::jsonb, ${aplicaA}, ${desde}::date, ${hasta}::date, ${m.asesorId}::uuid)
       RETURNING id
     `
-    await auditar(m, 'crear_regla', null, { regla: nombre, modo: body.modo })
+    await auditar(m, 'crear_regla', null, { regla: nombre, modo: body.modo, aplica_a: aplicaA })
     return NextResponse.json({ success: true, id: r[0].id })
   } catch (error) {
     console.error('❌ Error en POST /api/admin/incentivos:', error)
@@ -183,6 +187,11 @@ export async function PATCH(req: NextRequest) {
       if (err) return NextResponse.json({ error: err }, { status: 400 })
       await sql`UPDATE incentivo_reglas SET definicion = ${JSON.stringify(body.definicion)}::jsonb, actualizado_en = now() WHERE id = ${body.id}::uuid`
       cambios.definicion = 'editada'
+    }
+    if (body.aplica_a !== undefined) {
+      if (!APLICA_A.includes(body.aplica_a)) return NextResponse.json({ error: 'aplica_a debe ser todos, local o viajero' }, { status: 400 })
+      await sql`UPDATE incentivo_reglas SET aplica_a = ${body.aplica_a}, actualizado_en = now() WHERE id = ${body.id}::uuid`
+      cambios.aplica_a = body.aplica_a
     }
     if (body.activa !== undefined) {
       if (typeof body.activa !== 'boolean') return NextResponse.json({ error: 'activa debe ser verdadero o falso' }, { status: 400 })

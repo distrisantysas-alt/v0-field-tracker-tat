@@ -7,6 +7,7 @@
 
 export type MetricaId =
   | 'visitas_dia'          // visitas del mes / dias laborables
+  | 'pedidos_dia_neto'     // (pedidos - devoluciones) / dias laborables
   | 'efectividad_neta'     // (pedidos - devoluciones) / visitas * 100
   | 'efectividad_bruta'    // pedidos / visitas * 100
   | 'activaciones'         // clientes que volvieron a comprar tras N dias sin comprar
@@ -19,6 +20,7 @@ export type MetricaId =
 
 export const METRICAS: Record<MetricaId, { etiqueta: string; unidad: string; decimales: number }> = {
   visitas_dia: { etiqueta: 'Visitas por día laborable', unidad: '', decimales: 1 },
+  pedidos_dia_neto: { etiqueta: 'Pedidos por día laborable (menos devoluciones)', unidad: '', decimales: 1 },
   efectividad_neta: { etiqueta: 'Efectividad neta (pedidos − devoluciones ÷ visitas)', unidad: '%', decimales: 1 },
   efectividad_bruta: { etiqueta: 'Efectividad bruta (pedidos ÷ visitas)', unidad: '%', decimales: 1 },
   activaciones: { etiqueta: 'Clientes activados', unidad: '', decimales: 0 },
@@ -38,12 +40,22 @@ export interface Nivel { nombre: string; condiciones: Condicion[]; monto: number
 export interface DefEscala { niveles: Nivel[] }
 export interface DefPorUnidad { metrica: MetricaId; monto_unidad: number; minimo: number; tope: number | null }
 
+export type Perfil = 'local' | 'viajero'
+export type AplicaA = 'todos' | Perfil
+export const PERFILES: Perfil[] = ['local', 'viajero']
+
+/** Una regla con aplica_a='todos' vale para cualquier perfil; si no, solo para ese perfil. */
+export function reglaAplica(aplicaA: AplicaA | undefined, perfil: Perfil): boolean {
+  return !aplicaA || aplicaA === 'todos' || aplicaA === perfil
+}
+
 export interface Regla {
   id: string
   nombre: string
   plantilla: string
   modo: 'escala' | 'por_unidad'
   definicion: DefEscala | DefPorUnidad
+  aplica_a: AplicaA
   activa: boolean
   vigente_desde: string
   vigente_hasta: string | null

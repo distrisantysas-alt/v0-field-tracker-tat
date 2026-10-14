@@ -19,6 +19,7 @@ interface Usuario {
   email: string
   rol: Rol
   zona: string | null
+  perfil: "local" | "viajero"
   telefono: string | null
   activo: boolean
   es_admin_maestro: boolean
@@ -199,7 +200,7 @@ export function TabUsuarios() {
                 </div>
                 <p className="truncate text-xs text-gray-400">{u.email}</p>
                 <p className="mt-0.5 text-[11px] text-gray-500">
-                  {[u.zona, u.rol === "asesor" ? `${u.clientes} clientes` : null, u.supervisor_nombre ? `Supervisor: ${u.supervisor_nombre}` : null].filter(Boolean).join(" · ") || "Sin zona"}
+                  {[u.zona, u.rol === "asesor" && u.perfil === "viajero" ? "Viajero" : null, u.rol === "asesor" ? `${u.clientes} clientes` : null, u.supervisor_nombre ? `Supervisor: ${u.supervisor_nombre}` : null].filter(Boolean).join(" · ") || "Sin zona"}
                 </p>
                 <p className={`mt-0.5 flex items-center gap-1 text-[11px] ${u.tiene_clave ? (u.clave_temporal ? "text-warning" : "text-success") : "text-gray-500"}`}>
                   <Lock className="h-3 w-3" />
@@ -316,6 +317,7 @@ function FormularioUsuario({ modo, usuario, supervisores, aviso, trabajando, onC
   const [rol, setRol] = useState<"asesor" | "supervisor" | "entregador">(usuario && usuario.rol !== "gerencia" ? usuario.rol : "asesor")
   const [zona, setZona] = useState(usuario?.zona ?? "")
   const [telefono, setTelefono] = useState(usuario?.telefono ?? "")
+  const [perfil, setPerfil] = useState<"local" | "viajero">(usuario?.perfil ?? "local")
   const [supervisorId, setSupervisorId] = useState(usuario?.supervisor_id ?? "")
   const [clave, setClave] = useState<"ninguna" | "generar" | "definir">("ninguna")
   const [claveManual, setClaveManual] = useState("")
@@ -332,7 +334,7 @@ function FormularioUsuario({ modo, usuario, supervisores, aviso, trabajando, onC
     setError("")
     const base: Record<string, unknown> = { nombre, email, zona, telefono }
     if (!esMaestro) base.rol = rol
-    if (rol === "asesor") base.supervisor_id = supervisorId || null
+    if (rol === "asesor") { base.supervisor_id = supervisorId || null; base.perfil = perfil }
     if (clave === "generar") base.generar_clave = true
     if (clave === "definir") base.clave = claveManual
     if (modo === "editar" && usuario) base.id = usuario.id
@@ -363,6 +365,15 @@ function FormularioUsuario({ modo, usuario, supervisores, aviso, trabajando, onC
           <div><label className={etiqueta} htmlFor="u-zona">Zona</label><input id="u-zona" className={campo} value={zona} onChange={e => setZona(e.target.value)} placeholder="Ej: Norte" /></div>
           <div><label className={etiqueta} htmlFor="u-tel">Teléfono</label><input id="u-tel" className={campo} value={telefono} onChange={e => setTelefono(e.target.value)} inputMode="tel" /></div>
         </div>
+        {rol === "asesor" && !esMaestro && (
+          <div>
+            <label className={etiqueta} htmlFor="u-perfil">Perfil (para los incentivos)</label>
+            <select id="u-perfil" className={campo} value={perfil} onChange={e => setPerfil(e.target.value as "local" | "viajero")}>
+              <option value="local">Local</option>
+              <option value="viajero">Viajero</option>
+            </select>
+          </div>
+        )}
         {rol === "asesor" && !esMaestro && (
           <div>
             <label className={etiqueta} htmlFor="u-sup">Supervisor</label>

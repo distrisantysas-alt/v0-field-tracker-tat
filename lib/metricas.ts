@@ -7,7 +7,7 @@
 // ============================================================================
 import { sql } from '@/lib/db'
 import { diasLaborablesMes } from '@/lib/festivos'
-import type { Metricas } from '@/lib/incentivos'
+import type { Metricas, Perfil } from '@/lib/incentivos'
 
 export const DIAS_SIN_COMPRAR_ACTIVACION = 60
 
@@ -15,6 +15,7 @@ export interface AsesorMes {
   asesor_id: string
   nombre: string
   zona: string | null
+  perfil: Perfil
   metricas: Metricas
   presupuesto: number | null
   dias_laborables: number
@@ -48,7 +49,7 @@ export async function datosDelMes(mes: string, diasSinComprar = DIAS_SIN_COMPRAR
   const { inicio, fin } = cal
 
   const asesores = await sql`
-    SELECT id, nombre, zona FROM asesores WHERE rol = 'asesor' AND activo = true ORDER BY nombre
+    SELECT id, nombre, zona, perfil FROM asesores WHERE rol = 'asesor' AND activo = true ORDER BY nombre
   `
   const visitas = await sql`
     SELECT v.asesor_id,
@@ -117,14 +118,18 @@ export async function datosDelMes(mes: string, diasSinComprar = DIAS_SIN_COMPRAR
       ticket_promedio: v.pedidos > 0 ? v.ventas / v.pedidos : 0,
       activaciones: (mAct.get(a.id) as any)?.n ?? 0,
     }
-    if (devCargadas) m.efectividad_neta = v.visitas > 0 ? (Math.max(0, v.pedidos - dv.cantidad) / v.visitas) * 100 : 0
+    if (devCargadas) {
+      const pedidosNetos = Math.max(0, v.pedidos - dv.cantidad)
+      m.efectividad_neta = v.visitas > 0 ? (pedidosNetos / v.visitas) * 100 : 0
+      m.pedidos_dia_neto = diasLab > 0 ? pedidosNetos / diasLab : 0
+    }
     if (asig > 0) m.cobertura_pct = (v.clientes_visitados / asig) * 100
     if (presupuesto && presupuesto > 0) {
       const ventaNeta = devCargadas ? v.ventas + dv.valor : v.ventas   // dv.valor viene negativo del POS
       m.cumplimiento_presupuesto_pct = (ventaNeta / presupuesto) * 100
     }
     return {
-      asesor_id: a.id, nombre: a.nombre, zona: a.zona, metricas: m, presupuesto,
+      asesor_id: a.id, nombre: a.nombre, zona: a.zona, perfil: a.perfil === 'viajero' ? 'viajero' : 'local', metricas: m, presupuesto,
       dias_laborables: diasLab, dias_definidos: !!dd, dias_con_visitas: v.dias_con_visitas,
       devoluciones: dv.cantidad, clientes_asignados: asig, clientes_visitados: v.clientes_visitados,
     }
