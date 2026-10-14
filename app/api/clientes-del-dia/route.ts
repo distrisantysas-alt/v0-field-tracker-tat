@@ -7,6 +7,8 @@
 // ✅ Incluye clientes compartidos vía asesor_clientes
 // ✅ Incluye ultima_foto_url — foto de la última visita (persiste entre días)
 // ✅ Incluye clientes nuevos creados por el asesor aunque no estén en rutas_dia
+// ✅ Cada gestión del historial trae quién la hizo y su nota, aunque la haya
+//    hecho otro asesor (clientes traspasados): la información no se pierde.
 // ✅ Incluye historial de las últimas 5 gestiones por cliente — no solo la
 //    última — para que el asesor vea el patrón (quién dejó de comprarle) y
 //    no solo el dato aislado de la visita más reciente.
@@ -21,6 +23,9 @@ interface GestionHistorial {
   timestamp: string;
   hubo_pedido: boolean;
   valor_pedido: string | number;
+  notas?: string | null;
+  asesor_nombre?: string | null;
+  otro_asesor?: boolean;
 }
 
 export async function GET(req: NextRequest) {
@@ -90,10 +95,12 @@ export async function GET(req: NextRequest) {
       LEFT JOIN LATERAL (
         SELECT jsonb_agg(h ORDER BY h.timestamp DESC) AS historial
         FROM (
-          SELECT timestamp, hubo_pedido, valor_pedido
-          FROM visitas
-          WHERE cliente_id = c.id
-          ORDER BY timestamp DESC
+          SELECT vh.timestamp, vh.hubo_pedido, vh.valor_pedido, vh.notas,
+                 ah.nombre AS asesor_nombre, (vh.asesor_id <> ${asesorId}::uuid) AS otro_asesor
+          FROM visitas vh
+          LEFT JOIN asesores ah ON ah.id = vh.asesor_id
+          WHERE vh.cliente_id = c.id
+          ORDER BY vh.timestamp DESC
           LIMIT 5
         ) h
       ) hist ON true
@@ -138,10 +145,12 @@ export async function GET(req: NextRequest) {
       LEFT JOIN LATERAL (
         SELECT jsonb_agg(h ORDER BY h.timestamp DESC) AS historial
         FROM (
-          SELECT timestamp, hubo_pedido, valor_pedido
-          FROM visitas
-          WHERE cliente_id = c.id
-          ORDER BY timestamp DESC
+          SELECT vh.timestamp, vh.hubo_pedido, vh.valor_pedido, vh.notas,
+                 ah.nombre AS asesor_nombre, (vh.asesor_id <> ${asesorId}::uuid) AS otro_asesor
+          FROM visitas vh
+          LEFT JOIN asesores ah ON ah.id = vh.asesor_id
+          WHERE vh.cliente_id = c.id
+          ORDER BY vh.timestamp DESC
           LIMIT 5
         ) h
       ) hist ON true
@@ -191,10 +200,12 @@ export async function GET(req: NextRequest) {
       LEFT JOIN LATERAL (
         SELECT jsonb_agg(h ORDER BY h.timestamp DESC) AS historial
         FROM (
-          SELECT timestamp, hubo_pedido, valor_pedido
-          FROM visitas
-          WHERE cliente_id = c.id
-          ORDER BY timestamp DESC
+          SELECT vh.timestamp, vh.hubo_pedido, vh.valor_pedido, vh.notas,
+                 ah.nombre AS asesor_nombre, (vh.asesor_id <> ${asesorId}::uuid) AS otro_asesor
+          FROM visitas vh
+          LEFT JOIN asesores ah ON ah.id = vh.asesor_id
+          WHERE vh.cliente_id = c.id
+          ORDER BY vh.timestamp DESC
           LIMIT 5
         ) h
       ) hist ON true
@@ -246,10 +257,12 @@ export async function GET(req: NextRequest) {
       LEFT JOIN LATERAL (
         SELECT jsonb_agg(h ORDER BY h.timestamp DESC) AS historial
         FROM (
-          SELECT timestamp, hubo_pedido, valor_pedido
-          FROM visitas
-          WHERE cliente_id = c.id
-          ORDER BY timestamp DESC
+          SELECT vh.timestamp, vh.hubo_pedido, vh.valor_pedido, vh.notas,
+                 ah.nombre AS asesor_nombre, (vh.asesor_id <> ${asesorId}::uuid) AS otro_asesor
+          FROM visitas vh
+          LEFT JOIN asesores ah ON ah.id = vh.asesor_id
+          WHERE vh.cliente_id = c.id
+          ORDER BY vh.timestamp DESC
           LIMIT 5
         ) h
       ) hist ON true
@@ -295,10 +308,12 @@ export async function GET(req: NextRequest) {
       LEFT JOIN LATERAL (
         SELECT jsonb_agg(h ORDER BY h.timestamp DESC) AS historial
         FROM (
-          SELECT timestamp, hubo_pedido, valor_pedido
-          FROM visitas
-          WHERE cliente_id = c.id
-          ORDER BY timestamp DESC
+          SELECT vh.timestamp, vh.hubo_pedido, vh.valor_pedido, vh.notas,
+                 ah.nombre AS asesor_nombre, (vh.asesor_id <> ${asesorId}::uuid) AS otro_asesor
+          FROM visitas vh
+          LEFT JOIN asesores ah ON ah.id = vh.asesor_id
+          WHERE vh.cliente_id = c.id
+          ORDER BY vh.timestamp DESC
           LIMIT 5
         ) h
       ) hist ON true
@@ -331,6 +346,9 @@ export async function GET(req: NextRequest) {
         timestamp: h.timestamp,
         hubo_pedido: h.hubo_pedido,
         valor_pedido: parseFloat(String(h.valor_pedido)),
+        notas: h.notas ?? null,
+        asesor_nombre: h.asesor_nombre ?? null,
+        otro_asesor: !!h.otro_asesor,
       })),
     };
   });

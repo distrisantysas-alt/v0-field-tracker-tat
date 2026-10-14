@@ -1079,16 +1079,22 @@ function GestionCliente({ cliente, asesorId, userLocation, isOnline, onVolver, o
             </div>
             <div className="space-y-1.5">
               {cliente.historial_reciente.map((h, i) => (
-                <div key={i} className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${h.hubo_pedido ? 'bg-success' : 'bg-gray-600'}`} />
-                    <span className="text-gray-400 font-mono">
-                      {new Date(h.timestamp).toLocaleDateString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: 'short' })}
+                <div key={i} className="text-xs">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${h.hubo_pedido ? 'bg-success' : 'bg-gray-600'}`} />
+                      <span className="text-gray-400 font-mono">
+                        {new Date(h.timestamp).toLocaleDateString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: 'short' })}
+                      </span>
+                      {h.otro_asesor && h.asesor_nombre && (
+                        <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] text-gray-300">{h.asesor_nombre}</span>
+                      )}
+                    </div>
+                    <span className={h.hubo_pedido ? 'text-success font-medium' : 'text-gray-600'}>
+                      {h.hubo_pedido ? `$${Math.round(h.valor_pedido).toLocaleString('es-CO')}` : 'Sin pedido'}
                     </span>
                   </div>
-                  <span className={h.hubo_pedido ? 'text-success font-medium' : 'text-gray-600'}>
-                    {h.hubo_pedido ? `$${Math.round(h.valor_pedido).toLocaleString('es-CO')}` : 'Sin pedido'}
-                  </span>
+                  {h.notas && <p className="ml-3.5 mt-0.5 text-[10px] text-gray-500">{h.notas}</p>}
                 </div>
               ))}
             </div>

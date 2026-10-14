@@ -86,7 +86,7 @@ export interface ClienteConEstado extends Cliente {
   ultimo_valor_pedido: number | null;
   // Panorama de oportunidad: últimas hasta 5 gestiones (más reciente primero)
   // y cuántas de las más recientes seguidas fueron sin pedido
-  historial_reciente: { timestamp: string; hubo_pedido: boolean; valor_pedido: number }[];
+  historial_reciente: { timestamp: string; hubo_pedido: boolean; valor_pedido: number; notas?: string | null; asesor_nombre?: string | null; otro_asesor?: boolean }[];
   racha_sin_pedido: number;
 }
 
