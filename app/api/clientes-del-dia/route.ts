@@ -7,6 +7,8 @@
 // ✅ Incluye clientes compartidos vía asesor_clientes
 // ✅ Incluye ultima_foto_url — foto de la última visita (persiste entre días)
 // ✅ Incluye clientes nuevos creados por el asesor aunque no estén en rutas_dia
+// ✅ La gestión del día de un cliente se muestra sin importar qué asesor la hizo:
+//    si la ruta se traspasa a mitad de día, lo ya visitado sigue marcado como visitado.
 // ✅ Cada gestión del historial trae quién la hizo y su nota, aunque la haya
 //    hecho otro asesor (clientes traspasados): la información no se pierde.
 // ✅ Incluye historial de las últimas 5 gestiones por cliente — no solo la
@@ -80,10 +82,14 @@ export async function GET(req: NextRequest) {
         hist.historial AS historial_reciente
       FROM rutas_dia r
       JOIN clientes c ON c.id = r.cliente_id
-      LEFT JOIN visitas v
-        ON v.cliente_id = c.id
-        AND v.asesor_id = ${asesorId}
-        AND (v.timestamp AT TIME ZONE 'America/Bogota')::date = ${fecha}::date
+      LEFT JOIN LATERAL (
+        SELECT vv.validada, vv.distancia_metros, vv.timestamp, vv.foto_url, vv.hubo_pedido, vv.valor_pedido
+        FROM visitas vv
+        WHERE vv.cliente_id = c.id
+          AND (vv.timestamp AT TIME ZONE 'America/Bogota')::date = ${fecha}::date
+        ORDER BY (vv.asesor_id = ${asesorId}::uuid) DESC, vv.timestamp DESC
+        LIMIT 1
+      ) v ON true
       LEFT JOIN LATERAL (
         SELECT foto_url, timestamp
         FROM visitas
@@ -130,10 +136,14 @@ export async function GET(req: NextRequest) {
         uv.timestamp AS ultima_visita_en,
         hist.historial AS historial_reciente
       FROM clientes c
-      LEFT JOIN visitas v
-        ON v.cliente_id = c.id
-        AND v.asesor_id = ${asesorId}
-        AND (v.timestamp AT TIME ZONE 'America/Bogota')::date = ${fecha}::date
+      LEFT JOIN LATERAL (
+        SELECT vv.validada, vv.distancia_metros, vv.timestamp, vv.foto_url, vv.hubo_pedido, vv.valor_pedido
+        FROM visitas vv
+        WHERE vv.cliente_id = c.id
+          AND (vv.timestamp AT TIME ZONE 'America/Bogota')::date = ${fecha}::date
+        ORDER BY (vv.asesor_id = ${asesorId}::uuid) DESC, vv.timestamp DESC
+        LIMIT 1
+      ) v ON true
       LEFT JOIN LATERAL (
         SELECT foto_url, timestamp
         FROM visitas
@@ -185,10 +195,14 @@ export async function GET(req: NextRequest) {
         hist.historial AS historial_reciente
       FROM asesor_clientes ac
       JOIN clientes c ON c.id = ac.cliente_id
-      LEFT JOIN visitas v
-        ON v.cliente_id = c.id
-        AND v.asesor_id = ${asesorId}
-        AND (v.timestamp AT TIME ZONE 'America/Bogota')::date = ${fecha}::date
+      LEFT JOIN LATERAL (
+        SELECT vv.validada, vv.distancia_metros, vv.timestamp, vv.foto_url, vv.hubo_pedido, vv.valor_pedido
+        FROM visitas vv
+        WHERE vv.cliente_id = c.id
+          AND (vv.timestamp AT TIME ZONE 'America/Bogota')::date = ${fecha}::date
+        ORDER BY (vv.asesor_id = ${asesorId}::uuid) DESC, vv.timestamp DESC
+        LIMIT 1
+      ) v ON true
       LEFT JOIN LATERAL (
         SELECT foto_url, timestamp
         FROM visitas
@@ -242,10 +256,14 @@ export async function GET(req: NextRequest) {
         uv.timestamp AS ultima_visita_en,
         hist.historial AS historial_reciente
       FROM clientes c
-      LEFT JOIN visitas v
-        ON v.cliente_id = c.id
-        AND v.asesor_id = ${asesorId}
-        AND (v.timestamp AT TIME ZONE 'America/Bogota')::date = ${fecha}::date
+      LEFT JOIN LATERAL (
+        SELECT vv.validada, vv.distancia_metros, vv.timestamp, vv.foto_url, vv.hubo_pedido, vv.valor_pedido
+        FROM visitas vv
+        WHERE vv.cliente_id = c.id
+          AND (vv.timestamp AT TIME ZONE 'America/Bogota')::date = ${fecha}::date
+        ORDER BY (vv.asesor_id = ${asesorId}::uuid) DESC, vv.timestamp DESC
+        LIMIT 1
+      ) v ON true
       LEFT JOIN LATERAL (
         SELECT foto_url, timestamp
         FROM visitas
@@ -293,10 +311,14 @@ export async function GET(req: NextRequest) {
         hist.historial AS historial_reciente
       FROM asesor_clientes ac
       JOIN clientes c ON c.id = ac.cliente_id
-      LEFT JOIN visitas v
-        ON v.cliente_id = c.id
-        AND v.asesor_id = ${asesorId}
-        AND (v.timestamp AT TIME ZONE 'America/Bogota')::date = ${fecha}::date
+      LEFT JOIN LATERAL (
+        SELECT vv.validada, vv.distancia_metros, vv.timestamp, vv.foto_url, vv.hubo_pedido, vv.valor_pedido
+        FROM visitas vv
+        WHERE vv.cliente_id = c.id
+          AND (vv.timestamp AT TIME ZONE 'America/Bogota')::date = ${fecha}::date
+        ORDER BY (vv.asesor_id = ${asesorId}::uuid) DESC, vv.timestamp DESC
+        LIMIT 1
+      ) v ON true
       LEFT JOIN LATERAL (
         SELECT foto_url, timestamp
         FROM visitas
