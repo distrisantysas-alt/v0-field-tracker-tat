@@ -430,7 +430,7 @@ export function MiRuta({ asesor }: MiRutaProps) {
           <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-white">Planear mi ruta</span><span className="block text-xs text-gray-400">Ordena los {clientesPendientesHoy.length} que te faltan para recorrer menos kilómetros</span></span>
         </button>
       )}
-      {planeando && <PlanearRuta asesorId={ASESOR_ID} onCerrar={() => setPlaneando(false)} />}
+      {planeando && <PlanearRuta asesorId={ASESOR_ID} rutaInicial={filtroRuta || undefined} onCerrar={() => setPlaneando(false)} />}
 
       {clientesPendientesHoy.length > 0 && (
         <div className="mx-4 mt-3 rounded-xl bg-friendly/10 border border-friendly/30 p-4">

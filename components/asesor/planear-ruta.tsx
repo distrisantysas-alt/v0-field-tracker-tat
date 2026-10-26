@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react"
 import useSWR, { mutate } from "swr"
 import { Navigation, MapPin, Loader2, Route as RouteIcon, X, Check, LocateFixed } from "lucide-react"
 import { fetcher } from "@/lib/fetcher"
+import { rutaDe, compararRutas } from "@/lib/rutas"
 import { coordValida, estimarMinutos, km, longitudRuta, ordenarRuta, textoDuracion, urlGoogleParada, urlWaze, urlsGoogleRuta, type Coord, type Punto } from "@/lib/planeador"
 
 const botonPrimario = "rounded-xl bg-navy-accent px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
@@ -36,12 +37,21 @@ const quitarRuta = (n: string) => (n || "").replace(/^\S+\s/, "").trim()
 const fechaHoy = () => new Date().toLocaleString("en-CA", { timeZone: "America/Bogota" }).split(",")[0]
 const fkm = (n: number) => `${n.toLocaleString("es-CO", { maximumFractionDigits: 1 })} km`
 
-export function PlanearRuta({ asesorId, onCerrar }: { asesorId: string; onCerrar: () => void }) {
+export function PlanearRuta({ asesorId, rutaInicial, onCerrar }: { asesorId: string; rutaInicial?: string; onCerrar: () => void }) {
   const fecha = fechaHoy()
   const { data, isLoading } = useSWR(`/api/clientes-del-dia?asesor_id=${asesorId}&fecha=${fecha}`, fetcher)
   const pendientes: any[] = useMemo(() => (data?.clientes ?? []).filter((c: any) => !c.completada && !c.visitado_en), [data])
-  const conUbicacion = pendientes.filter(c => coordValida(c.lat, c.lng))
-  const sinUbicacion = pendientes.filter(c => !coordValida(c.lat, c.lng))
+  // Rutas que tienen clientes por visitar hoy (la ruta es el número con que empieza el nombre)
+  const rutas = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const c of pendientes) { const r = rutaDe(c.nombre); m.set(r, (m.get(r) ?? 0) + 1) }
+    return [...m.entries()].sort((a, b) => compararRutas(a[0], b[0]))
+  }, [pendientes])
+  // Sin ninguna ruta elegida se muestran todas
+  const [rutasSel, setRutasSel] = useState<Set<string>>(new Set(rutaInicial ? [rutaDe(rutaInicial + " ")] : []))
+  const visibles = useMemo(() => pendientes.filter(c => rutasSel.size === 0 || rutasSel.has(rutaDe(c.nombre))), [pendientes, rutasSel])
+  const conUbicacion = visibles.filter(c => coordValida(c.lat, c.lng))
+  const sinUbicacion = visibles.filter(c => !coordValida(c.lat, c.lng))
 
   const [gps, setGps] = useState<"buscando" | "ok" | "no">("buscando")
   const [aqui, setAqui] = useState<Coord | null>(null)
@@ -70,6 +80,10 @@ export function PlanearRuta({ asesorId, onCerrar }: { asesorId: string; onCerrar
   const porId = new Map<string, any>(pendientes.map(c => [c.id, c]))
   const tramos = urlsGoogleRuta(plan, inicio)
 
+  function alternarRuta(r: string) { setRutasSel(s => { const n = new Set(s); n.has(r) ? n.delete(r) : n.add(r); return n }); setGuardado(false) }
+  function marcarTodos(marcar: boolean) {
+    setOmitidos(s => { const n = new Set(s); conUbicacion.forEach(c => (marcar ? n.delete(c.id) : n.add(c.id))); return n }); setGuardado(false)
+  }
   function alternar(id: string) { setOmitidos(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n }); setGuardado(false) }
 
   async function guardar() {
@@ -93,6 +107,35 @@ export function PlanearRuta({ asesorId, onCerrar }: { asesorId: string; onCerrar
         <p className="rounded-xl bg-white/5 px-3 py-6 text-center text-sm text-gray-300">No te quedan clientes por visitar hoy. 🎉</p>
       ) : (
         <div className="space-y-3">
+          <div>
+            <p className="mb-1 text-xs font-semibold text-gray-400">1. ¿Qué ruta vas a trabajar?</p>
+            <div className="flex flex-wrap gap-1.5">
+              <button onClick={() => { setRutasSel(new Set()); setGuardado(false) }} className={`rounded-full border px-3 py-1 text-xs font-semibold ${rutasSel.size === 0 ? "border-navy-accent bg-navy-accent text-white" : "border-white/10 text-gray-400"}`}>Todas ({pendientes.length})</button>
+              {rutas.map(([r, n]) => (
+                <button key={r} onClick={() => alternarRuta(r)} aria-pressed={rutasSel.has(r)} className={`rounded-full border px-3 py-1 text-xs font-semibold ${rutasSel.has(r) ? "border-navy-accent bg-navy-accent text-white" : "border-white/10 text-gray-400"}`}>Ruta {r} ({n})</button>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] text-gray-500">Puedes elegir una o varias rutas. Así el orden se calcula solo con esos clientes.</p>
+          </div>
+
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-400">2. ¿Qué clientes visitas hoy? ({incluidos.length} de {conUbicacion.length})</p>
+              <span className="flex gap-3 text-[11px]"><button onClick={() => marcarTodos(true)} className="text-navy-accent">Todos</button><button onClick={() => marcarTodos(false)} className="text-gray-400">Ninguno</button></span>
+            </div>
+            <div className="max-h-44 overflow-y-auto rounded-xl border border-white/10 bg-dark-bg">
+              {[...conUbicacion].sort((a, b) => compararRutas(rutaDe(a.nombre), rutaDe(b.nombre)) || a.nombre.localeCompare(b.nombre)).map(c => (
+                <label key={c.id} className="flex cursor-pointer items-center gap-2 border-b border-white/5 px-3 py-2 last:border-0">
+                  <input type="checkbox" checked={!omitidos.has(c.id)} onChange={() => alternar(c.id)} className="h-4 w-4 shrink-0 accent-[#0D7A70]" />
+                  <span className="min-w-0 flex-1 truncate text-sm text-white">{quitarRuta(c.nombre)}</span>
+                  <span className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold text-gray-300">{rutaDe(c.nombre)}</span>
+                </label>
+              ))}
+              {conUbicacion.length === 0 && <p className="px-3 py-3 text-xs text-gray-500">Esta ruta no tiene clientes con ubicación.</p>}
+            </div>
+          </div>
+
+          <p className="text-xs font-semibold text-gray-400">3. Recorrido sugerido</p>
           <div className="flex gap-2 text-xs">
             <button onClick={() => setDesdeAqui(true)} disabled={gps !== "ok"} className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-2 py-2 font-semibold disabled:opacity-40 ${desdeAqui && gps === "ok" ? "border-navy-accent bg-navy-accent/10 text-white" : "border-white/10 text-gray-400"}`}>
               {gps === "buscando" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LocateFixed className="h-3.5 w-3.5" />}
@@ -116,7 +159,7 @@ export function PlanearRuta({ asesorId, onCerrar }: { asesorId: string; onCerrar
                 <div key={p.id} className="flex items-center gap-2 border-b border-white/5 px-3 py-2 last:border-0">
                   <button onClick={() => alternar(p.id)} aria-label={`Quitar ${quitarRuta(c.nombre)} de hoy`} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy-accent text-xs font-bold text-white">{i + 1}</button>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-white">{quitarRuta(c.nombre)}</p>
+                    <p className="truncate text-sm text-white">{quitarRuta(c.nombre)} <span className="ml-1 rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-gray-300">{rutaDe(c.nombre)}</span></p>
                     <p className="truncate text-xs text-gray-500">{tramo !== null ? `${fkm(tramo)} desde ${i === 0 ? "tu ubicación" : "la parada anterior"}` : "Primera parada"}{c.direccion ? ` · ${c.direccion}` : ""}</p>
                   </div>
                   <a href={urlWaze(p)} target="_blank" rel="noreferrer" aria-label={`Waze a ${quitarRuta(c.nombre)}`} className="rounded-lg border border-white/10 px-2 py-1.5 text-xs font-bold text-gray-300">Waze</a>
@@ -125,7 +168,7 @@ export function PlanearRuta({ asesorId, onCerrar }: { asesorId: string; onCerrar
               )
             })}
           </div>
-          <p className="text-xs text-gray-500">Toca el número de una parada para dejarla para otro día.</p>
+          <p className="text-xs text-gray-500">Toca el número de una parada, o quita la marca en la lista de arriba, para dejarla para otro día.</p>
 
           {conUbicacion.filter(c => omitidos.has(c.id)).length > 0 && (
             <div className="rounded-xl border border-white/10 bg-dark-bg p-2">
