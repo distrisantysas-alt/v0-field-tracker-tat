@@ -55,6 +55,7 @@ Si Vercel está conectado a `main`, cada `push` despliega automáticamente (veri
    - Si falta un dato (devoluciones sin cargar, presupuesto sin cargar) la métrica queda **sin dato**, no en cero.
 6. **Devoluciones** = notas crédito (prefijo `NC`) + ventas con total negativo del POS. Se cargan desde el CSV del POS (`admin/devoluciones`), sin duplicar (clave: `ID de Venta`).
 7. **Meses cerrados** guardan una copia congelada de reglas y resultados; no se modifican (se reabren con bitácora).
+8. **Planear mi ruta** (`components/asesor/planear-ruta.tsx`, `lib/planeador.ts`): en Mi Ruta, el asesor ordena los clientes que le faltan hoy para recorrer menos kilómetros (vecino más cercano + 2-opt, distancia en línea recta × 1,3, sin servicios de mapas; calcula en el celular). Muestra km y tiempo aproximado, enlaces a Waze/Google Maps y guarda el orden con `PUT /api/clientes-del-dia`, que escribe `rutas_dia.orden` (crea la fila de `rutas_dia` del día si no existía). Efecto a tener en cuenta: `dashboard` y `equipo-estado` usan `rutas_dia` como "clientes del día"; un asesor que planea pasa a tener cumplimiento calculado sobre los clientes planeados. Los clientes con orden planeado salen primero en la lista; el resto, detrás por nombre.
 
 ## 6. Metas operativas vigentes (octubre 2026)
 Definidas por la gerencia; son criterio de gestión, no del código:

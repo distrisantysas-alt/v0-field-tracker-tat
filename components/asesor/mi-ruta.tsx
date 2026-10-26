@@ -35,6 +35,7 @@ import {
 } from "@/lib/db"
 import { fetcher } from "@/lib/fetcher"
 import { type AsesorSession } from "./login-asesor"
+import { PlanearRuta } from "./planear-ruta"
 
 type ClientStatus = "validada" | "sospechosa" | "pendiente"
 type TipoGestion  = "visita" | "pedido" | null
@@ -152,6 +153,7 @@ export function MiRuta({ asesor }: MiRutaProps) {
   const [buscar, setBuscar]               = useState("")
   const [filtroRuta, setFiltroRuta]       = useState("")
   const [ordenPor, setOrdenPor]           = useState<OrdenModo>("todos")
+  const [planeando, setPlaneando]         = useState(false)
   const [cachedData, setCachedData]       = useState<any>(() => leerCacheClientes(asesor.id, fecha))
 
   const { data: fetchedData, error, mutate } = useSWR(
@@ -421,6 +423,14 @@ export function MiRuta({ asesor }: MiRutaProps) {
           </div>
         </div>
       </div>
+
+      {clientesPendientesHoy.length > 1 && (
+        <button onClick={() => setPlaneando(true)} className="mx-4 mt-3 flex w-[calc(100%-2rem)] items-center gap-3 rounded-xl border border-navy-accent/40 bg-navy-accent/5 p-3 text-left active:scale-[0.99]">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-navy-accent text-white"><MapPin className="h-4 w-4" /></span>
+          <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-white">Planear mi ruta</span><span className="block text-xs text-gray-400">Ordena los {clientesPendientesHoy.length} que te faltan para recorrer menos kilómetros</span></span>
+        </button>
+      )}
+      {planeando && <PlanearRuta asesorId={ASESOR_ID} onCerrar={() => setPlaneando(false)} />}
 
       {clientesPendientesHoy.length > 0 && (
         <div className="mx-4 mt-3 rounded-xl bg-friendly/10 border border-friendly/30 p-4">

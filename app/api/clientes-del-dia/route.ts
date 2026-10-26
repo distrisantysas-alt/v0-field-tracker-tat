@@ -7,6 +7,7 @@
 // ✅ Incluye clientes compartidos vía asesor_clientes
 // ✅ Incluye ultima_foto_url — foto de la última visita (persiste entre días)
 // ✅ Incluye clientes nuevos creados por el asesor aunque no estén en rutas_dia
+// ✅ PUT guarda el orden de visita que el asesor planeó ("Planear mi ruta"), en rutas_dia.orden
 // ✅ La gestión del día de un cliente se muestra sin importar qué asesor la hizo:
 //    si la ruta se traspasa a mitad de día, lo ya visitado sigue marcado como visitado.
 // ✅ Cada gestión del historial trae quién la hizo y su nota, aunque la haya
@@ -60,6 +61,7 @@ export async function GET(req: NextRequest) {
     // ── Con rutas_dia: respeta el orden asignado
     // ── UNION con clientes propios no incluidos en rutas_dia (ej: creados nuevos)
     clientes = await sql`
+      SELECT * FROM (
       SELECT
         c.id,
         c.codigo,
@@ -230,7 +232,9 @@ export async function GET(req: NextRequest) {
           WHERE asesor_id = ${asesorId} AND fecha = ${fecha}::date
         )
 
-      ORDER BY orden ASC, nombre ASC
+      ) t
+      -- los clientes con orden planeado (>0) van primero, en ese orden; el resto detrás, por nombre
+      ORDER BY (CASE WHEN COALESCE(t.orden, 0) = 0 THEN 1 ELSE 0 END), t.orden ASC, t.nombre ASC
     `;
   } else {
     // ── Sin rutas_dia: clientes propios + clientes compartidos ───────────
@@ -384,4 +388,58 @@ export async function GET(req: NextRequest) {
   };
 
   return NextResponse.json({ clientes, stats, fecha });
+}
+
+
+// ── PUT { fecha?, orden: [cliente_id, ...] } → guarda el orden de visita que el asesor planeó ───────────
+// Los clientes de la lista van primero, en ese orden; el resto de su ruta del día conserva su orden detrás.
+// Solo toca la ruta del asesor logueado y solo clientes suyos o que tiene compartidos.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export async function PUT(req: NextRequest) {
+  try {
+    const auth = await requireSesion(req);
+    if (auth instanceof NextResponse) return auth;
+    const b = await req.json();
+    const hoy = new Date().toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0];
+    const fecha = typeof b.fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.fecha) ? b.fecha : hoy;
+    if (!Array.isArray(b.orden) || b.orden.length === 0 || b.orden.length > 300 || !b.orden.every((x: unknown) => typeof x === 'string' && UUID_RE.test(x))) {
+      return NextResponse.json({ error: 'El orden debe ser una lista de clientes' }, { status: 400 });
+    }
+    const ids: string[] = Array.from(new Set<string>(b.orden));
+
+    // 1) Los clientes planeados entran a rutas_dia (si no estaban) con su posición
+    const nuevos = await sql`
+      WITH nuevo AS (
+        SELECT x.id::uuid AS cliente_id, x.pos::int AS pos FROM unnest(${ids}::text[]) WITH ORDINALITY AS x(id, pos)
+      ), validos AS (
+        SELECT n.cliente_id, n.pos FROM nuevo n
+        JOIN clientes c ON c.id = n.cliente_id AND c.activo = true
+        WHERE c.asesor_id = ${auth.asesorId}::uuid
+           OR EXISTS (SELECT 1 FROM asesor_clientes ac WHERE ac.asesor_id = ${auth.asesorId}::uuid AND ac.cliente_id = c.id)
+      )
+      INSERT INTO rutas_dia (asesor_id, cliente_id, fecha, orden)
+      SELECT ${auth.asesorId}::uuid, v.cliente_id, ${fecha}::date, v.pos FROM validos v
+      ON CONFLICT (asesor_id, cliente_id, fecha) DO UPDATE SET orden = EXCLUDED.orden
+      RETURNING cliente_id`;
+
+    // 2) El resto de la ruta del día se corre detrás, conservando su orden relativo
+    await sql`
+      WITH planeados AS (
+        SELECT cliente_id FROM rutas_dia
+        WHERE asesor_id = ${auth.asesorId}::uuid AND fecha = ${fecha}::date AND cliente_id = ANY(${ids}::uuid[])
+      ), resto AS (
+        SELECT r.cliente_id,
+               ((SELECT COUNT(*) FROM planeados) + row_number() OVER (ORDER BY r.orden NULLS LAST, r.cliente_id))::int AS pos
+        FROM rutas_dia r
+        WHERE r.asesor_id = ${auth.asesorId}::uuid AND r.fecha = ${fecha}::date AND r.cliente_id <> ALL(${ids}::uuid[])
+      )
+      UPDATE rutas_dia r SET orden = resto.pos FROM resto
+      WHERE r.asesor_id = ${auth.asesorId}::uuid AND r.fecha = ${fecha}::date AND r.cliente_id = resto.cliente_id`;
+
+    return NextResponse.json({ success: true, reordenados: nuevos.length });
+  } catch (e) {
+    console.error('❌ PUT /api/clientes-del-dia:', e);
+    return NextResponse.json({ error: 'No se pudo guardar el orden' }, { status: 500 });
+  }
 }
