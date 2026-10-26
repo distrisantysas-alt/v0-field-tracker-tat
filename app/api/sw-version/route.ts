@@ -10,9 +10,12 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 // Generar versión al arrancar el proceso (cambia en cada deploy)
+// Una versión por deploy. Si no hay ninguna variable de Vercel, 'local' (la app no avisa de cambios)
+// en vez de un valor distinto por arranque, que mostraría el aviso de actualización sin motivo.
 const BUILD_VERSION = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 8)
   ?? process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA?.slice(0, 8)
-  ?? Date.now().toString()
+  ?? process.env.VERCEL_DEPLOYMENT_ID
+  ?? 'local'
 
 export async function GET() {
   return NextResponse.json(

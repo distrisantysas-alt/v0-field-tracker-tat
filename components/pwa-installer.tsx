@@ -5,12 +5,19 @@
 // ✅ Detecta nueva versión del SW automáticamente
 // ✅ Muestra banner "Nueva versión disponible" al asesor
 // ✅ Un toque actualiza sin limpiar caché manualmente
+// ✅ También compara la versión del servidor (/api/sw-version) con la que tiene cargada la app:
+//    sw.js casi nunca cambia de contenido, así que el navegador no lo detectaba como "nuevo"
+//    y el aviso no salía aunque hubiera un despliegue nuevo.
 // ============================================================================
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { RefreshCw, X, Download, Wifi, WifiOff } from 'lucide-react'
 
+// Versión con la que se construyó esta copia de la app (si Vercel la expone); si no, se toma al abrir
+const VERSION_BUNDLE = process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA?.slice(0, 8) ?? null
+
 export function PWAInstaller() {
+  const versionCargada = useRef<string | null>(VERSION_BUNDLE)
   const [updateAvailable, setUpdateAvailable]     = useState(false)
   const [waitingWorker, setWaitingWorker]         = useState<ServiceWorker | null>(null)
   const [installing, setInstalling]               = useState(false)
@@ -18,6 +25,25 @@ export function PWAInstaller() {
   const [deferredPrompt, setDeferredPrompt]       = useState<any>(null)
   const [isOnline, setIsOnline]                   = useState(true)
   const [syncMsg, setSyncMsg]                     = useState<string | null>(null)
+
+  // ── Versión del servidor vs. la de esta app ─────────────────────────────
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const revisar = async () => {
+      try {
+        const res = await fetch('/api/sw-version', { cache: 'no-store' })
+        const { version } = await res.json()
+        if (!version || version === 'local') return
+        if (versionCargada.current === null) { versionCargada.current = version; return }
+        if (version !== versionCargada.current) setUpdateAvailable(true)
+      } catch { /* sin conexión: se vuelve a intentar */ }
+    }
+    revisar()
+    const id = setInterval(revisar, 60 * 1000)
+    const alVolver = () => { if (document.visibilityState === 'visible') revisar() }
+    document.addEventListener('visibilitychange', alVolver)
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', alVolver) }
+  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -108,10 +134,18 @@ export function PWAInstaller() {
 
   }, [])
 
-  const handleUpdate = () => {
-    if (!waitingWorker) return
+  const handleUpdate = async () => {
     setInstalling(true)
-    waitingWorker.postMessage({ type: 'SKIP_WAITING' })
+    if (waitingWorker) {
+      waitingWorker.postMessage({ type: 'SKIP_WAITING' })
+      return
+    }
+    // Versión nueva en el servidor sin service worker nuevo: se limpia la caché y se recarga
+    try {
+      const claves = await caches.keys()
+      await Promise.all(claves.map(k => caches.delete(k)))
+    } catch { /* si falla, igual se recarga */ }
+    window.location.reload()
   }
 
   const handleInstall = async () => {

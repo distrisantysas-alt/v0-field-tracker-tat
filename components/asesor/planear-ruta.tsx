@@ -149,6 +149,7 @@ export function PlanearRuta({ asesorId, rutaInicial, onCerrar }: { asesorId: str
             <Dato t="Recorrido" v={fkm(kmPlan)} />
             <Dato t="Tiempo aprox." v={textoDuracion(minutos)} />
           </div>
+          {plan.length > 60 && <p className="rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-center text-xs font-semibold text-warning">Son {plan.length} paradas: son demasiadas para un solo día. Elige una ruta arriba para ordenar solo esa.</p>}
           {ahorro >= 0.5 && <p className="rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-center text-xs font-semibold text-success">Ahorras unos {fkm(ahorro)} frente al orden actual de tu lista</p>}
 
           <div className="rounded-xl border border-white/10 bg-dark-bg">
