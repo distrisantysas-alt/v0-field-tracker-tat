@@ -46,7 +46,7 @@ Si Vercel está conectado a `main`, cada `push` despliega automáticamente (veri
 1. **La ruta de un cliente es el número con que empieza su nombre** (`"37 MARTHA RAMIRES"` → ruta `37`; `"6B ..."` → `6B`). Ver `lib/rutas.ts`. Un cliente sin número queda en `SIN-RUTA`.
 2. **Las visitas pertenecen al cliente, no al asesor.** Cuando un cliente cambia de asesor, su historial se conserva. El historial reciente (últimas 5 gestiones) muestra quién la hizo y su nota. La lista del día marca un cliente como visitado si **cualquier** asesor lo visitó ese día.
 3. **Estadísticas, metas e incentivos son por quien hizo la gestión** (`visitas.asesor_id`), no por el dueño actual del cliente.
-4. **Perfil del asesor** (`asesores.perfil`): `local`, `viajero` o `mixto`. Las reglas de incentivo tienen `aplica_a` (`todos`, `local`, `viajero`).
+4. **Perfil del asesor** (`asesores.perfil`): en la app solo existen `local` y `viajero` (CHECK en la migración 0013). Las reglas de incentivo tienen `aplica_a` (`todos`, `local`, `viajero`). **"Mixto" (Gustavo: rutas locales y viajeras) es una categoría de gestión que aún NO existe en la app**; agregarla requiere migración y cambios en `lib/incentivos.ts`, el selector de Usuarios y el editor de reglas.
 5. **Fórmulas**
    - Pedido = visita con `hubo_pedido = true`.
    - **Efectividad neta = (pedidos − devoluciones) ÷ visitas.** Bruta = pedidos ÷ visitas.
@@ -62,7 +62,7 @@ Definidas por la gerencia; son criterio de gestión, no del código:
 | Perfil | Visitas por día | Pedidos netos por día |
 |---|---|---|
 | Local | 40 a 45 | 20 a 22 |
-| Mixto (Gustavo) | 30 a 35 | 18 a 21 |
+| Mixto (Gustavo) — solo en informes, no existe en la app | 30 a 35 | 18 a 21 |
 | Viajero (Jhoan, Anthony) | 30 | 18 |
 
 - Efectividad de referencia: **más de 45%**.
@@ -98,7 +98,7 @@ Para el detalle por día, agrupa también por `(v.timestamp AT TIME ZONE 'Americ
 - **`clientes_eliminados`** guarda `asesor_id` pero no `asesor_nombre`; se obtiene uniendo con `asesores`.
 - **"Mis estadísticas" con filtro "Todo":** el formato de fecha probablemente falle ("Invalid Date"); verificar.
 - **Informe por ruta y día** (quién visitó la ruta X el día Y) aún no existe en la app.
-- **Perfiles en la app:** deben estar bien marcados (Jhoan y Anthony `viajero`, Gustavo `mixto`); por defecto todos quedan `local`.
+- **Perfiles en la app:** deben estar bien marcados (Jhoan y Anthony `viajero`); por defecto todos quedan `local`. Falta soportar el perfil `mixto` (Gustavo).
 - **Asesores con app incompleta** (a octubre 2026: Lizeth, Jhoan, Santiago, Anthony): es un tema de gestión, no del código.
 
 ## 9. Cómo trabajar aquí
