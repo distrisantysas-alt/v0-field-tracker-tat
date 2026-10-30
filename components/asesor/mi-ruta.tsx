@@ -36,6 +36,7 @@ import {
 import { fetcher } from "@/lib/fetcher"
 import { type AsesorSession } from "./login-asesor"
 import { PlanearRuta } from "./planear-ruta"
+import { km as kmEntre, urlGoogleParada, urlWaze } from "@/lib/planeador"
 
 type ClientStatus = "validada" | "sospechosa" | "pendiente"
 type TipoGestion  = "visita" | "pedido" | null
@@ -154,6 +155,7 @@ export function MiRuta({ asesor }: MiRutaProps) {
   const [filtroRuta, setFiltroRuta]       = useState("")
   const [ordenPor, setOrdenPor]           = useState<OrdenModo>("todos")
   const [planeando, setPlaneando]         = useState(false)
+  const [modoPlan, setModoPlan]           = useState<"nuevo" | "reordenar">("nuevo")
   const [cachedData, setCachedData]       = useState<any>(() => leerCacheClientes(asesor.id, fecha))
 
   const { data: fetchedData, error, mutate } = useSWR(
@@ -288,6 +290,11 @@ export function MiRuta({ asesor }: MiRutaProps) {
     filtroRuta ? getRuta(c.nombre) === filtroRuta : true
   )
   const clientesPendientesHoy = clientesRutaActual.filter(c => !c.visitado_en)
+  // Clientes que el asesor ya planeó para hoy (orden guardado) y todavía no visita, en ese orden
+  const clientesPlaneados = todosClientes
+    .filter(c => !c.visitado_en && !c.completada && Number((c as any).orden) > 0)
+    .sort((a, b) => Number((a as any).orden) - Number((b as any).orden))
+  const siguientePlan = clientesPlaneados[0] ?? null
   const sugerenciaPrioridad = clientesPendientesHoy.length > 0
     ? [...clientesPendientesHoy].sort(
         (a, b) => (b.racha_sin_pedido ?? 0) - (a.racha_sin_pedido ?? 0)
@@ -424,13 +431,28 @@ export function MiRuta({ asesor }: MiRutaProps) {
         </div>
       </div>
 
+      {siguientePlan && (
+        <div className="mx-4 mt-3 rounded-xl border border-navy-accent/40 bg-navy-accent/5 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-navy-accent">Siguiente cliente de tu ruta</p>
+          <p className="mt-0.5 truncate text-sm font-semibold text-white">{siguientePlan.nombre}</p>
+          <p className="text-xs text-gray-400">
+            {userLocation && siguientePlan.lat && siguientePlan.lng ? `A ${(kmEntre(userLocation, { lat: Number(siguientePlan.lat), lng: Number(siguientePlan.lng) }) * 1.3).toLocaleString("es-CO", { maximumFractionDigits: 1 })} km de ti · ` : ""}{clientesPlaneados.length} por visitar en tu ruta
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button onClick={() => { setClienteActivo(siguientePlan); setVista("gestion") }} className="rounded-lg bg-navy-accent px-3 py-1.5 text-xs font-bold text-white">Abrir cliente</button>
+            {siguientePlan.lat && siguientePlan.lng && <a href={urlWaze({ lat: Number(siguientePlan.lat), lng: Number(siguientePlan.lng) })} target="_blank" rel="noreferrer" className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-bold text-gray-200">Waze</a>}
+            {siguientePlan.lat && siguientePlan.lng && <a href={urlGoogleParada({ lat: Number(siguientePlan.lat), lng: Number(siguientePlan.lng) })} target="_blank" rel="noreferrer" className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-bold text-gray-200">Google Maps</a>}
+            <button onClick={() => { setModoPlan("reordenar"); setPlaneando(true) }} className="rounded-lg border border-navy-accent/50 px-3 py-1.5 text-xs font-bold text-navy-accent">Reordenar desde donde estoy</button>
+          </div>
+        </div>
+      )}
       {clientesPendientesHoy.length > 1 && (
-        <button onClick={() => setPlaneando(true)} className="mx-4 mt-3 flex w-[calc(100%-2rem)] items-center gap-3 rounded-xl border border-navy-accent/40 bg-navy-accent/5 p-3 text-left active:scale-[0.99]">
+        <button onClick={() => { setModoPlan("nuevo"); setPlaneando(true) }} className="mx-4 mt-3 flex w-[calc(100%-2rem)] items-center gap-3 rounded-xl border border-navy-accent/40 bg-navy-accent/5 p-3 text-left active:scale-[0.99]">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-navy-accent text-white"><MapPin className="h-4 w-4" /></span>
-          <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-white">Planear mi ruta</span><span className="block text-xs text-gray-400">Ordena los {clientesPendientesHoy.length} que te faltan para recorrer menos kilómetros</span></span>
+          <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-white">Planear mi ruta</span><span className="block text-xs text-gray-400">La app elige los clientes de hoy y los ordena para recorrer menos kilómetros</span></span>
         </button>
       )}
-      {planeando && <PlanearRuta asesorId={ASESOR_ID} rutaInicial={filtroRuta || undefined} onCerrar={() => setPlaneando(false)} />}
+      {planeando && <PlanearRuta asesorId={ASESOR_ID} modo={modoPlan} rutaInicial={modoPlan === "nuevo" ? (filtroRuta || undefined) : undefined} onCerrar={() => setPlaneando(false)} />}
 
       {clientesPendientesHoy.length > 0 && (
         <div className="mx-4 mt-3 rounded-xl bg-friendly/10 border border-friendly/30 p-4">

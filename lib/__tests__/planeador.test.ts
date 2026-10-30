@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { km, ordenarRuta, longitudRuta, coordValida, estimarMinutos, textoDuracion, urlsGoogleRuta, urlWaze, type Punto } from '../planeador'
+import { km, ordenarRuta, longitudRuta, coordValida, estimarMinutos, textoDuracion, urlsGoogleRuta, urlWaze, elegirParaHoy, ubicacionesLejanas, type Punto, type Candidato } from '../planeador'
 
 // Paradas sobre una linea (norte-sur) mezcladas: el mejor recorrido desde el sur es en orden de latitud
 const linea: Punto[] = [4.70, 4.62, 4.66, 4.60, 4.68, 4.64].map((lat, i) => ({ id: `p${i}`, lat, lng: -74.1 }))
@@ -50,5 +50,45 @@ describe('planeador de ruta', () => {
     expect(new URL(t[0].url).searchParams.get('waypoints')!.split('|').length).toBe(8)
     expect(urlsGoogleRuta([], null)).toEqual([])
     expect(urlWaze({ lat: 4.6, lng: -74.1 })).toBe('https://waze.com/ul?ll=4.6,-74.1&navigate=yes')
+  })
+})
+
+describe('elegir los clientes de hoy', () => {
+  // dos barrios: 12 clientes cerca de (4.60,-74.10) y 12 cerca de (4.80,-74.10) (~22 km al norte)
+  const sur: Candidato[] = Array.from({ length: 12 }, (_, i) => ({ id: `s${i}`, lat: 4.60 + i * 0.0005, lng: -74.10 }))
+  const norte: Candidato[] = Array.from({ length: 12 }, (_, i) => ({ id: `n${i}`, lat: 4.80 + i * 0.0005, lng: -74.10 }))
+  it('con GPS elige los más cercanos: todo el día queda en una zona', () => {
+    const ids = elegirParaHoy([...sur, ...norte], { lat: 4.601, lng: -74.1 }, 10)
+    expect(ids).toHaveLength(10)
+    expect(ids.every(id => id.startsWith('s'))).toBe(true)
+  })
+  it('sin GPS toma una sola zona (la más densa), no mezcla las dos', () => {
+    const ids = elegirParaHoy([...sur, ...norte.slice(0, 3)], null, 8)
+    expect(ids.every(id => id.startsWith('s'))).toBe(true)
+  })
+  it('si hay menos clientes que la meta, entran todos; ignora los sin ubicación', () => {
+    const c: Candidato[] = [...sur.slice(0, 3), { id: 'x', lat: 0, lng: 0 }]
+    expect(elegirParaHoy(c, null, 40).sort()).toEqual(['s0', 's1', 's2'])
+    expect(elegirParaHoy(c, null, 0)).toEqual([])
+  })
+  it('la prioridad adelanta a un cliente de oportunidad un poco más lejano', () => {
+    const base: Candidato[] = [{ id: 'cerca', lat: 4.60, lng: -74.1 }, { id: 'lejos_con_oportunidad', lat: 4.6045, lng: -74.1, prioridad: true }, { id: 'otro', lat: 4.603, lng: -74.1 }]
+    expect(elegirParaHoy(base, { lat: 4.60, lng: -74.1 }, 2, false).sort()).toEqual(['cerca', 'otro'])
+    expect(elegirParaHoy(base, { lat: 4.60, lng: -74.1 }, 2, true)).toContain('lejos_con_oportunidad')
+  })
+})
+
+describe('ubicaciones sospechosas', () => {
+  const grupo: Punto[] = Array.from({ length: 10 }, (_, i) => ({ id: `g${i}`, lat: 4.60 + i * 0.001, lng: -74.10 }))
+  it('marca un cliente a más de 20 km del resto', () => {
+    const r = ubicacionesLejanas([...grupo, { id: 'malo', lat: 4.90, lng: -74.1 }])
+    expect([...r]).toEqual(['malo'])
+  })
+  it('una ruta larga pero pareja no marca a nadie', () => {
+    const larga: Punto[] = Array.from({ length: 10 }, (_, i) => ({ id: `v${i}`, lat: 4.0 + i * 0.3, lng: -74.1 }))
+    expect(ubicacionesLejanas(larga).size).toBe(0)
+  })
+  it('con pocos puntos no juzga', () => {
+    expect(ubicacionesLejanas(grupo.slice(0, 3)).size).toBe(0)
   })
 })

@@ -101,3 +101,53 @@ export function urlsGoogleRuta(paradas: Coord[], inicio?: Coord | null, porTramo
   }
   return tramos
 }
+
+// ---- Elegir cuáles clientes visitar hoy -----------------------------------------------------------------------
+export interface Candidato extends Punto { prioridad?: boolean }
+
+const mediana = (xs: number[]): number => {
+  if (xs.length === 0) return 0
+  const o = [...xs].sort((a, b) => a - b), m = Math.floor(o.length / 2)
+  return o.length % 2 ? o[m] : (o[m - 1] + o[m]) / 2
+}
+
+/**
+ * Clientes cuya ubicación queda muy lejos del resto (casi siempre una coordenada mal guardada).
+ * Umbral: el mayor entre `minKm` y `veces` x la distancia mediana al centro del grupo; así una ruta viajera, que
+ * es larga de por sí, no marca a todos. Con menos de 5 puntos no se juzga a nadie.
+ */
+export function ubicacionesLejanas(puntos: Punto[], minKm = 20, veces = 3): Set<string> {
+  const v = puntos.filter(p => coordValida(p.lat, p.lng))
+  if (v.length < 5) return new Set()
+  const centro: Coord = { lat: mediana(v.map(p => p.lat)), lng: mediana(v.map(p => p.lng)) }
+  const d = v.map(p => km(centro, p))
+  const umbral = Math.max(minKm, veces * mediana(d))
+  return new Set(v.filter((_, i) => d[i] > umbral).map(p => p.id))
+}
+
+/**
+ * Elige los `n` clientes que conviene visitar hoy: los más cercanos al punto de partida (el GPS del asesor; sin GPS,
+ * el rincón más denso de la lista), de modo que el día quede en una sola zona. Con `usarPrioridad`, los clientes con
+ * oportunidad de venta cuentan como si estuvieran un 40% más cerca. Devuelve los id elegidos.
+ */
+export function elegirParaHoy(cands: Candidato[], centro: Coord | null, n: number, usarPrioridad = false): string[] {
+  const v = cands.filter(p => coordValida(p.lat, p.lng))
+  if (n <= 0) return []
+  if (v.length <= n) return v.map(p => p.id)
+  let origen = centro
+  if (!origen) {
+    // sin GPS: el punto con menor suma de distancias a sus (n-1) vecinos más próximos
+    let mejor = v[0], suma = Infinity
+    for (const a of v) {
+      const s = v.map(b => km(a, b)).sort((x, y) => x - y).slice(0, n).reduce((t, x) => t + x, 0)
+      if (s < suma) { suma = s; mejor = a }
+    }
+    origen = mejor
+  }
+  const o = origen
+  return v
+    .map(p => ({ id: p.id, d: km(o, p) * (usarPrioridad && p.prioridad ? 0.6 : 1) }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, n)
+    .map(x => x.id)
+}
