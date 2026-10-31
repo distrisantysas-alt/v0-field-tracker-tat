@@ -224,7 +224,7 @@ export function PlanearRuta({ asesorId, rutaInicial, modo = "nuevo", onCerrar }:
                 <div key={p.id} className="flex items-center gap-2 border-b border-white/5 px-3 py-2 last:border-0">
                   <button onClick={() => alternar(p.id)} aria-label={`Quitar ${quitarRuta(c.nombre)} de hoy`} className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy-accent text-xs font-bold text-white">{i + 1}</button>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-white">{quitarRuta(c.nombre)} <span className="ml-1 rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-gray-300">{rutaDe(c.nombre)}</span></p>
+                    <p className="flex items-center gap-1.5 text-sm text-white"><span className="truncate">{quitarRuta(c.nombre)}</span><span className="shrink-0 rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-gray-300">{rutaDe(c.nombre)}</span></p>
                     <p className="truncate text-xs text-gray-500">{tramo !== null ? `${fkm(tramo)} desde ${i === 0 ? "tu ubicación" : "la parada anterior"}` : "Primera parada"}{c.direccion ? ` · ${c.direccion}` : ""}</p>
                   </div>
                   <a href={urlWaze(p)} target="_blank" rel="noreferrer" aria-label={`Waze a ${quitarRuta(c.nombre)}`} className="rounded-lg border border-white/10 px-2 py-1.5 text-xs font-bold text-gray-300">Waze</a>
