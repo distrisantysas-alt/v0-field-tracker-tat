@@ -25,8 +25,9 @@ const MAX_PARADAS_DIA = 60   // más que esto ya no es una ruta de un día
 
 function Fondo({ children, onCerrar }: { children: React.ReactNode; onCerrar: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center" onClick={onCerrar}>
-      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/10 bg-dark-surface p-5" onClick={e => e.stopPropagation()}>{children}</div>
+    // z-[60]: por encima del menú de abajo (Mi Ruta, Asignado...), que si no tapa el final de la ventana
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/70 p-4 sm:items-center" onClick={onCerrar}>
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/10 bg-dark-surface p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]" onClick={e => e.stopPropagation()}>{children}</div>
     </div>
   )
 }
@@ -251,7 +252,7 @@ export function PlanearRuta({ asesorId, rutaInicial, modo = "nuevo", onCerrar }:
             <button onClick={guardar} disabled={guardando || plan.length === 0} className={`${botonPrimario} w-full`}>{guardando ? "Guardando…" : guardado ? "Guardar de nuevo" : "Usar este orden en mi lista de hoy"}</button>
             {tramos.length > 0 && !demasiadas && (
               <div className="flex flex-wrap gap-2">
-                {tramos.map(t => <a key={t.desde} href={t.url} target="_blank" rel="noreferrer" className={`${botonSecundario} flex flex-1 items-center justify-center gap-1.5 text-center text-xs`}><Navigation className="h-4 w-4" /> {tramos.length === 1 ? "Abrir toda la ruta en Google Maps" : `Google Maps: paradas ${t.desde}–${t.hasta}`}</a>)}
+                {tramos.map(t => <a key={t.desde} href={t.url} target="_blank" rel="noreferrer" className={`${botonSecundario} flex flex-1 items-center justify-center gap-1.5 text-center text-xs`}><Navigation className="h-4 w-4" /> {tramos.length === 1 ? "Abrir toda la ruta en Google Maps" : (t.desde === t.hasta ? `Google Maps: parada ${t.desde}` : `Google Maps: paradas ${t.desde}–${t.hasta}`)}</a>)}
               </div>
             )}
           </div>
