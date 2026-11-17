@@ -2,7 +2,7 @@
 
 // ============================================================================
 // components/gerencia/gerencia-layout.tsx — COMPLETO CON INFORMES INTEGRADO
-// Pestañas: Dashboard · Equipo · Zonas · Asesores · Informes · Importar · Compartir
+// Pestañas: Dashboard · Equipo · Zonas · Asesores · Informes · Tiempo · Importar · Compartir
 // ============================================================================
 
 import { useState, useEffect } from "react"
@@ -13,12 +13,13 @@ import {
   Check, TrendingUp, DollarSign, Search, X,
   UserPlus, RefreshCw, Edit2, UserX, ArrowRight,
   MapPin, CheckCircle, AlertCircle, FileUp, Share2,
-  ChevronUp, ChevronDown, Download, UserCog, Target, Award
+  ChevronUp, ChevronDown, Download, UserCog, Target, Award, Clock
 } from "lucide-react"
 import { fetcher } from "@/lib/fetcher"
 import { TabUsuarios } from "./tab-usuarios"
 import { TabMetas } from "./tab-metas"
 import { TabIncentivos } from "./tab-incentivos"
+import { TabTiempo } from "./tab-tiempo"
 
 function fechaColombia() {
   return new Date().toLocaleString('en-CA', { timeZone: 'America/Bogota' }).split(',')[0]
@@ -43,7 +44,7 @@ function cop(n: number): string {
   return '$' + Math.round(n).toLocaleString('es-CO')
 }
 
-type Tab = "dashboard" | "equipo" | "zonas" | "asesores" | "usuarios" | "metas" | "incentivos" | "informes" | "importar" | "compartir"
+type Tab = "dashboard" | "equipo" | "zonas" | "asesores" | "usuarios" | "metas" | "incentivos" | "informes" | "tiempo" | "importar" | "compartir"
 
 interface GerenciaLayoutProps { onBack: () => void }
 
@@ -61,6 +62,7 @@ export function GerenciaLayout({ onBack }: GerenciaLayoutProps) {
     { id: "metas"     as Tab, label: "Metas",       icon: Target     },
     { id: "incentivos" as Tab, label: "Incentivos", icon: Award      },
     { id: "informes"  as Tab, label: "Informes",    icon: TrendingUp },
+    { id: "tiempo"    as Tab, label: "Tiempo",      icon: Clock      },
     { id: "importar"  as Tab, label: "Importar",    icon: Upload     },
     { id: "compartir" as Tab, label: "Compartir",   icon: Share2     },
   ]
@@ -111,6 +113,7 @@ export function GerenciaLayout({ onBack }: GerenciaLayoutProps) {
         {tab === "metas"     && <TabMetas     />}
         {tab === "incentivos" && <TabIncentivos />}
         {tab === "informes"  && <TabInformes  />}
+        {tab === "tiempo"    && <TabTiempo    />}
         {tab === "importar"  && <TabImportar  />}
         {tab === "compartir" && <TabCompartir />}
       </div>
